@@ -83,11 +83,10 @@
             finally { document.body.removeChild(textArea); }
         };
 
-        // --- SISTEM PEMBAYARAN FLEKSIBEL (CICILAN) ---
+        // --- SISTEM PEMBAYARAN FLEKSIBEL ---
         const getTerbayar = (t) => {
             if (!t) return 0;
             if (t.terbayar !== undefined) return Number(t.terbayar);
-            // Fallback untuk data lama yang belum punya field "terbayar"
             return t.status === 'Terbayar' ? Number(t.total) : 0;
         };
 
@@ -105,27 +104,21 @@
             return 'BELUM';
         };
 
-        // Bantuan Format Struk Thermal Bluetooth (Lebar 32 Karakter)
+        // Bantuan Format Struk Thermal Bluetooth
         const alignCenter = (text) => {
             const str = String(text);
             return str.padStart(Math.floor((32 - str.length) / 2) + str.length).padEnd(32);
         };
         const alignLeftRight = (left, right) => {
-            const strLeft = String(left);
-            const strRight = String(right);
+            const strLeft = String(left); const strRight = String(right);
             const spaces = 32 - strLeft.length - strRight.length;
             return strLeft + ' '.repeat(Math.max(0, spaces)) + strRight;
         };
 
-        // Fungsi Cetak yang Dioptimalkan untuk HP & Printer Thermal (Web Print)
         const printContent = (htmlContent, mode) => {
             const iframe = document.createElement('iframe');
-            iframe.style.position = 'fixed';
-            iframe.style.right = '0';
-            iframe.style.bottom = '0';
-            iframe.style.width = '0';
-            iframe.style.height = '0';
-            iframe.style.border = '0';
+            iframe.style.position = 'fixed'; iframe.style.right = '0'; iframe.style.bottom = '0';
+            iframe.style.width = '0'; iframe.style.height = '0'; iframe.style.border = '0';
             document.body.appendChild(iframe);
             
             const doc = iframe.contentWindow.document;
@@ -138,8 +131,7 @@
                     hr { border: 0.5px dashed #000; margin: 6px 0; }
                     .text-center { text-align: center; } .text-right { text-align: right; } .bold { font-weight: bold; }
                     .title { font-size: 14px; font-weight: bold; margin-bottom: 2px; text-transform: uppercase; }
-                    table { width: 100%; font-size: 11px; }
-                    td { padding: 2px 0; }
+                    table { width: 100%; font-size: 11px; } td { padding: 2px 0; }
                 </style>`;
             } else {
                 style += `<style>
@@ -158,8 +150,7 @@
             doc.close();
 
             iframe.onload = function() {
-                iframe.contentWindow.focus();
-                iframe.contentWindow.print();
+                iframe.contentWindow.focus(); iframe.contentWindow.print();
                 setTimeout(() => document.body.removeChild(iframe), 2000);
             };
         };
@@ -185,11 +176,7 @@
             const [tagihanData, setTagihanData] = useState([]);
             const [adminUsers, setAdminUsers] = useState([]);
             const [settings, setSettings] = useState({
-                appName: 'BUMDES SRIKOYO',
-                appSubtitle: 'UNIT HIPAB',
-                tarif: 1500,
-                beban: 2000,
-                logo: ''
+                appName: 'BUMDES SRIKOYO', appSubtitle: 'UNIT HIPAB', tarif: 1500, beban: 2000, logo: ''
             });
 
             useEffect(() => { 
@@ -214,8 +201,7 @@
                     if(doc.exists) setAdminUsers(doc.data().list || []);
                     else {
                         const defaultUsers = [{ id: Date.now().toString(), username: 'admin', password: 'admin123' }];
-                        DB_PUSAT.collection('pengaturan').doc('users').set({ list: defaultUsers });
-                        setAdminUsers(defaultUsers);
+                        DB_PUSAT.collection('pengaturan').doc('users').set({ list: defaultUsers }); setAdminUsers(defaultUsers);
                     }
                 });
 
@@ -235,7 +221,6 @@
                     <div className="flex h-[100dvh] items-center justify-center bg-blue-900 text-white flex-col">
                         <i className="fas fa-circle-notch fa-spin text-5xl mb-4"></i>
                         <h2 className="text-xl font-bold">Menghubungkan Server...</h2>
-                        <p className="text-blue-300 mt-2 text-sm">Mohon tunggu sebentar</p>
                     </div>
                 );
             }
@@ -246,7 +231,6 @@
                 }} showToast={showToast} />;
             }
 
-            // Memastikan data yang dihitung hanya dari pelanggan yang masih ada
             const validTagihanData = tagihanData.filter(t => pelangganData.some(p => p.id === t.idPelanggan));
 
             return (
@@ -257,7 +241,6 @@
                         </div>
                     )}
 
-                    {/* Sidebar PC */}
                     <aside className="hidden md:flex flex-col w-64 bg-blue-900 text-white h-full shadow-xl z-20 relative">
                         <div className="flex flex-col items-center justify-center py-6 border-b border-blue-800">
                             <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-3 overflow-hidden p-2 text-blue-600">
@@ -280,12 +263,9 @@
                         </div>
                     </aside>
 
-                    {/* Header Mobile & Area Konten */}
                     <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50 relative">
                         <header className="md:hidden flex items-center justify-between bg-blue-900 text-white p-4 shadow-md z-10">
-                            <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 bg-blue-800 rounded">
-                                <i className="fas fa-bars text-xl"></i>
-                            </button>
+                            <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 bg-blue-800 rounded"><i className="fas fa-bars text-xl"></i></button>
                             <div className="flex items-center font-bold">
                                 <div className="w-6 h-6 mr-2 flex items-center justify-center text-blue-300">
                                     <LogoRenderer logo={settings.logo} className="text-lg" />
@@ -298,7 +278,6 @@
                             <div className="w-8"></div>
                         </header>
 
-                        {/* Sidebar Mobile */}
                         {isMobileMenuOpen && (
                             <div className="md:hidden fixed inset-0 z-50 flex">
                                 <div className="bg-blue-900 w-64 h-full shadow-2xl flex flex-col transform transition-transform duration-300">
@@ -321,7 +300,6 @@
                             </div>
                         )}
 
-                        {/* Area Konten Utama */}
                         <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8">
                             {activeTab === 'dashboard' && <Dashboard pelanggan={pelangganData} tagihan={validTagihanData} />}
                             {activeTab === 'pelanggan' && <PelangganManager data={pelangganData} showToast={showToast} />}
@@ -349,9 +327,7 @@
             const [user, setUser] = useState(''); const [pass, setPass] = useState('');
             const handleLogin = (e) => { 
                 e.preventDefault(); 
-                if(users.length === 0 && user === 'admin' && pass === 'admin123') {
-                    onLogin(); showToast('Selamat Datang!'); return;
-                }
+                if(users.length === 0 && user === 'admin' && pass === 'admin123') { onLogin(); showToast('Selamat Datang!'); return; }
                 const validUser = users.find(u => u.username === user && u.password === pass);
                 if(validUser) { onLogin(); showToast('Selamat Datang!'); } 
                 else alert('Username atau Password Salah!'); 
@@ -367,16 +343,10 @@
                             {settings.appSubtitle ? <p className="text-base text-blue-600 font-bold mt-1">{settings.appSubtitle}</p> : <p className="text-sm text-gray-500 mt-1">Silakan masuk ke akun Anda</p>}
                         </div>
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                                <input type="text" value={user} onChange={e=>setUser(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required/>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                                <input type="password" value={pass} onChange={e=>setPass(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required/>
-                            </div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Username</label><input type="text" value={user} onChange={e=>setUser(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg outline-none" required/></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Password</label><input type="password" value={pass} onChange={e=>setPass(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg outline-none" required/></div>
                         </div>
-                        <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold mt-8 shadow-lg transition-colors"><i className="fas fa-sign-in-alt mr-2"></i> Masuk Aplikasi</button>
+                        <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold mt-8 shadow-lg"><i className="fas fa-sign-in-alt mr-2"></i> Masuk Aplikasi</button>
                     </form>
                 </div>
             );
@@ -409,14 +379,14 @@
                 <div className="space-y-6">
                     <h2 className="text-2xl font-bold border-b pb-2 text-gray-800">Dashboard</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition-shadow"><div><p className="text-sm font-medium text-gray-500">Pelanggan Aktif</p><p className="text-2xl font-bold text-gray-800">{pelangganAktif}</p></div><div className="bg-blue-50 p-3 rounded-full"><i className="fas fa-users text-2xl text-blue-500"></i></div></div>
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition-shadow"><div><p className="text-sm font-medium text-gray-500">Pemasukan Bulan Ini</p><p className="text-xl font-bold text-green-600">{formatRp(pemasukan)}</p></div><div className="bg-green-50 p-3 rounded-full"><i className="fas fa-check-circle text-2xl text-green-500"></i></div></div>
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition-shadow"><div><p className="text-sm font-medium text-gray-500">Tunggakan Bulan Ini</p><p className="text-xl font-bold text-yellow-600">{formatRp(tunggakan)}</p></div><div className="bg-yellow-50 p-3 rounded-full"><i className="fas fa-exclamation-triangle text-2xl text-yellow-500"></i></div></div>
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition-shadow"><div><p className="text-sm font-medium text-gray-500">Total Tunggakan</p><p className="text-xl font-bold text-red-600">{formatRp(totalTunggakan)}</p></div><div className="bg-red-50 p-3 rounded-full"><i className="fas fa-file-invoice-dollar text-2xl text-red-500"></i></div></div>
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Pelanggan Aktif</p><p className="text-2xl font-bold text-gray-800">{pelangganAktif}</p></div><div className="bg-blue-50 p-3 rounded-full"><i className="fas fa-users text-2xl text-blue-500"></i></div></div>
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Pemasukan Bulan Ini</p><p className="text-xl font-bold text-green-600">{formatRp(pemasukan)}</p></div><div className="bg-green-50 p-3 rounded-full"><i className="fas fa-check-circle text-2xl text-green-500"></i></div></div>
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Sisa Tagihan Bulan Ini</p><p className="text-xl font-bold text-yellow-600">{formatRp(tunggakan)}</p></div><div className="bg-yellow-50 p-3 rounded-full"><i className="fas fa-exclamation-triangle text-2xl text-yellow-500"></i></div></div>
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Total Seluruh Tunggakan</p><p className="text-xl font-bold text-red-600">{formatRp(totalTunggakan)}</p></div><div className="bg-red-50 p-3 rounded-full"><i className="fas fa-file-invoice-dollar text-2xl text-red-500"></i></div></div>
                     </div>
 
                     <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 mt-8">
-                        <h3 className="text-lg font-bold mb-6 text-gray-700">Grafik Pemasukan (6 Bulan)</h3>
+                        <h3 className="text-lg font-bold mb-6 text-gray-700">Grafik Pemasukan (Berdasarkan Uang Masuk)</h3>
                         <div className="flex items-end space-x-2 md:space-x-4 h-64 border-b border-l border-gray-200 pb-2 pl-2">
                             {chartData.map((d, i) => (
                                 <div key={i} className="flex flex-col items-center flex-1 h-full justify-end group">
@@ -433,7 +403,7 @@
         }
 
         // ==========================================
-        // MANAJEMEN PELANGGAN
+        // MANAJEMEN PELANGGAN (Fix Import/Export CSV Excel)
         // ==========================================
         function PelangganManager({ data, showToast }) {
             const [modal, setModal] = useState(false); const [editId, setEditId] = useState(null);
@@ -459,7 +429,7 @@
             };
 
             const hapus = async (id) => { 
-                if(window.confirm('Yakin ingin menghapus pelanggan ini?')) {
+                if(window.confirm('Yakin ingin menghapus pelanggan ini? (Semua tagihan historisnya akan diabaikan)')) {
                     await DB_PUSAT.collection('pelanggan').doc(id).delete(); 
                     showToast('Data Dihapus');
                 }
@@ -469,15 +439,26 @@
                 const file = e.target.files[0]; if (!file) return;
                 const reader = new FileReader();
                 reader.onload = async (event) => {
-                    const rows = event.target.result.split('\n').filter(r => r.trim() !== '');
-                    if (rows.length < 2) return alert('Format kosong/salah');
+                    const text = event.target.result;
+                    // Memecah baris (Mendukung format newline Windows \r\n maupun Mac/Linux \n)
+                    const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
+                    if (rows.length < 2) return alert('Format file kosong atau salah.');
+                    
+                    // Cerdas: Deteksi apakah Excel menggunakan titik koma (;) atau koma (,)
+                    const delimiter = rows[0].includes(';') ? ';' : ',';
+                    
                     let successCount = 0;
                     for (let i = 1; i < rows.length; i++) {
-                        const cols = rows[i].split(',').map(c => c.trim());
-                        if (cols.length >= 6) {
+                        // Memecah kolom dan menghilangkan tanda kutip jika Excel menambahkannya
+                        const cols = rows[i].split(delimiter).map(c => c.replace(/^"|"$/g, '').trim());
+                        if (cols.length >= 2) { // Minimal ada No Pelanggan dan Nama
                             await DB_PUSAT.collection('pelanggan').add({
-                                noPelanggan: cols[0], nama: cols[1], rt: cols[2], rw: cols[3],
-                                status: cols[4] === 'Aktif' ? 'Aktif' : 'Tidak Aktif', noHp: cols[5]
+                                noPelanggan: cols[0] || '', 
+                                nama: cols[1] || '', 
+                                rt: cols[2] || '', 
+                                rw: cols[3] || '',
+                                status: (cols[4] && cols[4].toLowerCase().includes('tidak')) ? 'Tidak Aktif' : 'Aktif', 
+                                noHp: cols[5] || ''
                             });
                             successCount++;
                         }
@@ -489,9 +470,11 @@
             };
 
             const downloadCSV = () => {
-                let csvContent = "NoPelanggan,Nama,RT,RW,Status,NoHp\n";
-                filteredData.forEach(p => { csvContent += `${p.noPelanggan},${p.nama},${p.rt},${p.rw},${p.status},${p.noHp}\n`; });
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                // Menggunakan titik koma (;) agar otomatis rapi saat dibuka di Microsoft Excel Indonesia
+                let csvContent = "NoPelanggan;Nama;RT;RW;Status;NoHp\n";
+                filteredData.forEach(p => { csvContent += `"${p.noPelanggan}";"${p.nama}";"${p.rt}";"${p.rw}";"${p.status}";"${p.noHp}"\n`; });
+                // Tambahkan BOM \ufeff agar Excel membaca sebagai UTF-8 dengan benar
+                const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
                 link.setAttribute("href", url); link.setAttribute("download", "Data_Pelanggan.csv");
@@ -502,13 +485,8 @@
                 .filter(p => filterStatus === 'Semua' || p.status === filterStatus)
                 .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
                 .sort((a, b) => {
-                    if (sortBy === 'noPelanggan') {
-                        return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
-                    } else if (sortBy === 'rtRw') {
-                        const rtRwA = `${a.rt}/${a.rw}`;
-                        const rtRwB = `${b.rt}/${b.rw}`;
-                        return rtRwA.localeCompare(rtRwB, undefined, {numeric: true, sensitivity: 'base'});
-                    }
+                    if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
+                    if (sortBy === 'rtRw') return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true, sensitivity: 'base'});
                     return 0;
                 });
 
@@ -565,12 +543,12 @@
                                 <div className="space-y-4 mb-6">
                                     <div className="grid grid-cols-2 gap-4">
                                         <div><label className="text-xs font-medium text-gray-600 block mb-1">No Pelanggan</label><input value={form.no} onChange={e=>setForm({...form, no:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
-                                        <div><label className="text-xs font-medium text-gray-600 block mb-1">No HP</label><input value={form.hp} onChange={e=>setForm({...form, hp:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
+                                        <div><label className="text-xs font-medium text-gray-600 block mb-1">No HP</label><input value={form.hp} onChange={e=>setForm({...form, hp:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none"/></div>
                                     </div>
                                     <div><label className="text-xs font-medium text-gray-600 block mb-1">Nama Lengkap</label><input value={form.nama} onChange={e=>setForm({...form, nama:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
                                     <div className="grid grid-cols-3 gap-4">
-                                        <div><label className="text-xs font-medium text-gray-600 block mb-1">RT</label><input value={form.rt} onChange={e=>setForm({...form, rt:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
-                                        <div><label className="text-xs font-medium text-gray-600 block mb-1">RW</label><input value={form.rw} onChange={e=>setForm({...form, rw:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
+                                        <div><label className="text-xs font-medium text-gray-600 block mb-1">RT</label><input value={form.rt} onChange={e=>setForm({...form, rt:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+                                        <div><label className="text-xs font-medium text-gray-600 block mb-1">RW</label><input value={form.rw} onChange={e=>setForm({...form, rw:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" /></div>
                                         <div><label className="text-xs font-medium text-gray-600 block mb-1">Status</label><select value={form.status} onChange={e=>setForm({...form, status:e.target.value})} className="border p-2 w-full rounded outline-none"><option>Aktif</option><option>Tidak Aktif</option></select></div>
                                     </div>
                                 </div>
@@ -583,7 +561,7 @@
         }
 
         // ==========================================
-        // MANAJEMEN TAGIHAN (DENGAN SISTEM NYICIL)
+        // MANAJEMEN TAGIHAN (SISTEM GLOBAL AUTO LUNAS TUNGGAKAN LAMA)
         // ==========================================
         function TagihanManager({ pelanggan, tagihan, settings, showToast }) {
             const [periode, setPeriode] = useState(new Date().toISOString().slice(0, 7));
@@ -594,7 +572,6 @@
             const [modal, setModal] = useState(false); const [selP, setSelP] = useState(null);
             const [existT, setExistT] = useState(null);
             const [mAwal, setMAwal] = useState(''); const [mAkhir, setMAkhir] = useState('');
-            const [mBayar, setMBayar] = useState(''); // State untuk nyicil saat edit
 
             const [payModal, setPayModal] = useState(false);
             const [payNominal, setPayNominal] = useState('');
@@ -602,79 +579,96 @@
             const kubik = Math.max(0, Number(mAkhir) - Number(mAwal));
             const totalHitung = (kubik * settings.tarif) + settings.beban;
 
-            // Ringkasan Bulan Ini (Berdasarkan uang riil yang dibayar)
             const summaryTotal = tagihan.filter(t => t.periode === periode).reduce((s, t) => s + t.total, 0);
             const summaryLunas = tagihan.filter(t => t.periode === periode).reduce((s, t) => s + getTerbayar(t), 0);
             const summaryBelum = tagihan.filter(t => t.periode === periode).reduce((s, t) => s + getSisa(t), 0);
 
-            // Buka Modal Buat/Edit Tagihan Utama
             const openTagihan = (p) => {
                 const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
                 setSelP(p); setExistT(t);
                 if(t) { 
                     setMAwal(t.meterAwal); setMAkhir(t.meterAkhir); 
-                    setMBayar(getTerbayar(t));
                 } else { 
                     const [y, m] = periode.split('-'); let prevM = parseInt(m) - 1; let prevY = parseInt(y);
                     if(prevM === 0) { prevM = 12; prevY -= 1; }
                     const prevPer = `${prevY}-${prevM.toString().padStart(2, '0')}`;
                     const tLalu = tagihan.find(x => x.idPelanggan === p.id && x.periode === prevPer);
                     setMAwal(tLalu ? tLalu.meterAkhir : '0'); setMAkhir(''); 
-                    setMBayar(0);
                 }
                 setModal(true);
             };
 
-            const simpan = async (e) => {
+            const simpanTagihan = async (e) => {
                 e.preventDefault();
                 const payload = { 
                     idPelanggan: selP.id, periode, 
                     meterAwal: Number(mAwal), meterAkhir: Number(mAkhir), 
-                    total: totalHitung, terbayar: Number(mBayar),
-                    status: Number(mBayar) >= totalHitung ? 'Terbayar' : 'Belum Terbayar' // Legacy sync
+                    total: totalHitung, 
+                    terbayar: existT ? getTerbayar(existT) : 0,
+                    status: existT ? existT.status : 'Belum Terbayar'
                 };
                 try {
                     if(existT) await DB_PUSAT.collection('tagihan').doc(existT.id).update(payload); 
                     else await DB_PUSAT.collection('tagihan').add(payload);
-                    setModal(false); showToast('Tagihan Tersimpan');
-                } catch(err) { alert(err.message); }
-            };
-
-            // Buka Modal Khusus Pembayaran/Nyicil Cepat
-            const openPayModal = (p, t) => {
-                setSelP(p); setExistT(t);
-                setPayNominal(getTerbayar(t));
-                setPayModal(true);
-            };
-
-            const simpanPay = async (e) => {
-                e.preventDefault();
-                const num = Number(payNominal);
-                try {
-                    await DB_PUSAT.collection('tagihan').doc(existT.id).update({
-                        terbayar: num,
-                        status: num >= existT.total ? 'Terbayar' : 'Belum Terbayar'
-                    });
-                    setPayModal(false); showToast('Pembayaran Dicatat');
+                    setModal(false); showToast('Data Meteran Tersimpan');
                 } catch(err) { alert(err.message); }
             };
 
             const hapusTagihan = async (id) => {
                 if(window.confirm('Hapus tagihan bulan ini secara permanen?')) {
-                    try {
-                        await DB_PUSAT.collection('tagihan').doc(id).delete();
-                        setModal(false); showToast('Tagihan Dihapus');
-                    } catch(err) { alert(err.message); }
+                    try { await DB_PUSAT.collection('tagihan').doc(id).delete(); setModal(false); showToast('Tagihan Dihapus'); } 
+                    catch(err) { alert(err.message); }
                 }
             };
 
+            // --- SISTEM PEMBAYARAN GLOBAL (AUTO-LUNASI TUNGGAKAN LAMA) ---
+            const openPayModal = (p) => {
+                setSelP(p);
+                setPayNominal('');
+                setPayModal(true);
+            };
+
+            const simpanPayGlobal = async (e) => {
+                e.preventDefault();
+                let uang = Number(payNominal);
+                if(uang < 0) return alert("Nominal tidak valid!");
+                
+                // Ambil semua tagihan belum lunas dari pelanggan ini, urutkan dari periode paling lama
+                const unpaid = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0).sort((a, b) => a.periode.localeCompare(b.periode));
+                
+                if(unpaid.length === 0) return alert("Pelanggan ini tidak memiliki tagihan/tunggakan untuk dibayar.");
+
+                try {
+                    for(let t of unpaid) {
+                        if(uang <= 0) break; // Uang habis
+                        const sisaT = getSisa(t);
+                        
+                        if(uang >= sisaT) {
+                            // Lunas tagihan ini
+                            await DB_PUSAT.collection('tagihan').doc(t.id).update({ terbayar: getTerbayar(t) + sisaT, status: 'Terbayar' });
+                            uang -= sisaT;
+                        } else {
+                            // Uang hanya cukup untuk nyicil sebagian di bulan ini
+                            await DB_PUSAT.collection('tagihan').doc(t.id).update({ terbayar: getTerbayar(t) + uang, status: 'Belum Terbayar' });
+                            uang = 0;
+                        }
+                    }
+                    setPayModal(false); setPayNominal(''); showToast('Pembayaran Berhasil Didistribusikan!');
+                } catch(err) { alert(err.message); }
+            };
+
             const copyWA = (p, t) => {
-                const msg = `Yth. Bapak/Ibu ${p.nama},\n\nBersama pesan ini, kami sampaikan rincian tagihan air bersih ${settings.appName} untuk periode ${formatBulanTahunLengkap(t.periode)}.\n\n*Rincian Penggunaan:*\n- Meter Awal : ${t.meterAwal}\n- Meter Akhir: ${t.meterAkhir}\n- Pemakaian  : ${t.meterAkhir - t.meterAwal} m3\n\n*Total Tagihan : ${formatRp(t.total)}*\n*Sudah Dibayar : ${formatRp(getTerbayar(t))}*\n*Sisa Tunggakan: ${formatRp(getSisa(t))}*\n\nStatus: ${getStatusLabel(t) === 'LUNAS' ? 'LUNAS ✅' : (getStatusLabel(t) === 'NYICIL' ? 'DICICIL / SEBAGIAN' : 'BELUM TERBAYAR ❌')}\n\nDemikian informasi ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.\n\nHormat kami,\nPengelola ${settings.appName}`;
+                const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
+                const isLunasSemua = totalHutang <= 0;
+                
+                const msg = `Yth. Bapak/Ibu ${p.nama},\n\nBersama pesan ini, kami sampaikan rincian tagihan air bersih ${settings.appName} untuk periode ${formatBulanTahunLengkap(t.periode)}.\n\n*Rincian Penggunaan:*\n- Meter Awal : ${t.meterAwal}\n- Meter Akhir: ${t.meterAkhir}\n- Pemakaian  : ${t.meterAkhir - t.meterAwal} m3\n\n*Tagihan Bulan Ini: ${formatRp(t.total)}*\n*SISA SELURUH TUNGGAKAN: ${formatRp(totalHutang)}*\n\nStatus: ${isLunasSemua ? 'LUNAS ✅' : 'BELUM TERBAYAR ❌'}\n\nDemikian informasi ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.\n\nHormat kami,\nPengelola ${settings.appName}`;
                 copyToClipboard(msg); showToast("Pesan WA Disalin!");
             };
 
             const cetakStrukPC = (p, t) => {
                 const pemakaian = t.meterAkhir - t.meterAwal;
+                const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
+                
                 const html = `
                     <div class="text-center">
                         <div class="title" style="font-size: 14px;">${settings.appName}</div>
@@ -692,13 +686,12 @@
                         <tr><td>PEMAKAIAN</td><td class="text-right">${pemakaian} m3</td></tr>
                     </table><hr />
                     <table>
-                        <tr class="bold"><td>TAGIHAN</td><td class="text-right">${formatRp(t.total)}</td></tr>
-                        <tr><td>DIBAYAR</td><td class="text-right">${formatRp(getTerbayar(t))}</td></tr>
-                        <tr style="color:red;"><td>SISA</td><td class="text-right">${formatRp(getSisa(t))}</td></tr>
+                        <tr><td>TAGIHAN BLN INI</td><td class="text-right">${formatRp(t.total)}</td></tr>
+                        <tr class="bold" style="color:red; font-size:13px;"><td>TOTAL TUNGGAKAN</td><td class="text-right">${formatRp(totalHutang)}</td></tr>
                     </table><hr />
                     <div class="text-center" style="margin-top:8px;">
-                        <div class="bold" style="font-size:16px;">${getStatusLabel(t) === 'LUNAS' ? 'LUNAS' : (getStatusLabel(t) === 'NYICIL' ? 'NYICIL' : 'BELUM LUNAS')}</div>
-                        <div style="font-size:11px; margin-top: 4px;">TGL BAYAR: ${getCurrentDate()}</div>
+                        <div class="bold" style="font-size:16px;">${totalHutang <= 0 ? 'LUNAS' : 'BELUM LUNAS'}</div>
+                        <div style="font-size:11px; margin-top: 4px;">TGL CETAK: ${getCurrentDate()}</div>
                         <div style="margin-top:12px; font-size:11px;">TERIMA KASIH</div>
                         <div style="margin-top:4px; font-size:11px;">HORMAT KAMI, PENGURUS</div>
                     </div>`;
@@ -706,6 +699,7 @@
             };
 
             const cetakStrukHP = (p, t) => {
+                const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
                 const text = 
 `${alignCenter(settings.appName.toUpperCase())}
 ${settings.appSubtitle ? alignCenter(settings.appSubtitle.toUpperCase()) + '\n' : ''}${alignCenter('DESA MENONGO-SUKODADI-LAMONGAN')}
@@ -718,12 +712,11 @@ ${alignLeftRight('M. AWAL', t.meterAwal)}
 ${alignLeftRight('M. AKHIR', t.meterAkhir)}
 ${alignLeftRight('PEMAKAIAN', (t.meterAkhir - t.meterAwal) + ' m3')}
 --------------------------------
-${alignLeftRight('TAGIHAN', formatRp(t.total))}
-${alignLeftRight('DIBAYAR', formatRp(getTerbayar(t)))}
-${alignLeftRight('SISA', formatRp(getSisa(t)))}
+${alignLeftRight('TAGIHAN BLN INI', formatRp(t.total))}
+${alignLeftRight('TOTAL TUNGGAKAN', formatRp(totalHutang))}
 --------------------------------
-${alignCenter(getStatusLabel(t) === 'LUNAS' ? '*** LUNAS ***' : (getStatusLabel(t) === 'NYICIL' ? '** NYICIL **' : 'BELUM LUNAS'))}
-TGL BAYAR: ${getCurrentDate()}
+${alignCenter(totalHutang <= 0 ? '*** LUNAS ***' : 'BELUM LUNAS')}
+TGL CETAK: ${getCurrentDate()}
 
 ${alignCenter('TERIMA KASIH')}
 ${alignCenter('HORMAT KAMI,')}
@@ -748,8 +741,13 @@ ${alignCenter('PENGURUS')}
                 .filter(p => {
                     const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
                     if(filterStatus === 'Semua') return true;
-                    const stat = getStatusLabel(t);
-                    return stat === filterStatus;
+                    
+                    // Filter berdasarkan total seluruh hutang agar lebih akurat dengan keadaan lapangan
+                    const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
+                    if(filterStatus === 'LUNAS') return totalHutang <= 0 && t;
+                    if(filterStatus === 'BELUM') return totalHutang > 0 && (!t || t.status === 'Belum Terbayar');
+                    if(filterStatus === 'NYICIL') return t && getTerbayar(t) > 0 && getSisa(t) > 0;
+                    return true;
                 })
                 .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
                 .sort((a, b) => {
@@ -763,10 +761,10 @@ ${alignCenter('PENGURUS')}
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
                         <h2 className="text-2xl font-bold text-gray-800">Tagihan & Pembayaran</h2>
                         <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
-                            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
-                                <option value="Semua">Semua Tagihan</option><option value="BELUM">Belum Bayar</option><option value="NYICIL">Nyicil (Sebagian)</option><option value="LUNAS">Lunas</option>
+                            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm">
+                                <option value="Semua">Semua Tagihan</option><option value="BELUM">Belum Lunas</option><option value="NYICIL">Nyicil (Bln Ini)</option><option value="LUNAS">Lunas Total</option>
                             </select>
-                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
+                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm">
                                 <option value="noPelanggan">Urut: No. Pelanggan</option><option value="rtRw">Urut: RT / RW</option>
                             </select>
                             <div className="flex items-center space-x-2 bg-white px-3 py-1.5 border rounded-lg shadow-sm">
@@ -775,7 +773,7 @@ ${alignCenter('PENGURUS')}
                             </div>
                             <div className="relative flex-1 md:w-48">
                                 <i className="fas fa-search absolute left-3 top-2.5 text-gray-400 text-sm"></i>
-                                <input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 border rounded-lg outline-none text-sm"/>
+                                <input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 border rounded-lg outline-none text-sm shadow-sm"/>
                             </div>
                         </div>
                     </div>
@@ -783,102 +781,108 @@ ${alignCenter('PENGURUS')}
                     {/* Ringkasan Bulan Ini */}
                     <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4">
                         <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center shadow-sm">
-                            <p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Total Tagihan</p>
+                            <p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Total Tagihan Bln Ini</p>
                             <p className="text-sm md:text-lg font-bold text-blue-900">{formatRp(summaryTotal)}</p>
                         </div>
                         <div className="bg-green-50 border border-green-100 p-3 rounded-xl text-center shadow-sm">
-                            <p className="text-[10px] md:text-xs text-green-600 font-bold uppercase mb-1">Sudah Dibayar</p>
+                            <p className="text-[10px] md:text-xs text-green-600 font-bold uppercase mb-1">Uang Masuk Bln Ini</p>
                             <p className="text-sm md:text-lg font-bold text-green-900">{formatRp(summaryLunas)}</p>
                         </div>
                         <div className="bg-red-50 border border-red-100 p-3 rounded-xl text-center shadow-sm">
-                            <p className="text-[10px] md:text-xs text-red-600 font-bold uppercase mb-1">Sisa Tunggakan</p>
+                            <p className="text-[10px] md:text-xs text-red-600 font-bold uppercase mb-1">Sisa Tagihan Bln Ini</p>
                             <p className="text-sm md:text-lg font-bold text-red-900">{formatRp(summaryBelum)}</p>
                         </div>
                     </div>
 
                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
                         <table className="w-full text-sm text-left whitespace-nowrap">
-                            <thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">Pelanggan</th><th className="p-4">M.Awal</th><th className="p-4">M.Akhir</th><th className="p-4">Tagihan</th><th className="p-4">Dibayar</th><th className="p-4">Sisa</th><th className="p-4 text-center">Status</th><th className="p-4 text-center">Aksi</th></tr></thead>
+                            <thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">Pelanggan</th><th className="p-4">M.Awal</th><th className="p-4">M.Akhir</th><th className="p-4">Tagihan Bln Ini</th><th className="p-4">Sisa Bln Ini</th><th className="p-4 bg-red-50 text-red-700">TOTAL TUNGGAKAN</th><th className="p-4 text-center">Aksi</th></tr></thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredPelanggan.map(p => {
                                     const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
+                                    const totalHutangKeseluruhan = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
+                                    
                                     if(!t) return (
-                                        <tr key={p.id} className="hover:bg-gray-50"><td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan}</div></td><td colSpan="7" className="p-4 text-center"><button onClick={()=>openTagihan(p)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs shadow-sm"><i className="fas fa-plus mr-1"></i> Buat Tagihan</button></td></tr>
+                                        <tr key={p.id} className="hover:bg-gray-50"><td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan}</div></td><td colSpan="6" className="p-4 text-center"><button onClick={()=>openTagihan(p)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-medium shadow-sm"><i className="fas fa-plus mr-1"></i> Buat Tagihan</button></td></tr>
                                     );
-                                    const statL = getStatusLabel(t);
+                                    
                                     return (
                                         <tr key={p.id} className="hover:bg-gray-50">
                                             <td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan}</div></td>
                                             <td className="p-4">{t.meterAwal}</td><td className="p-4">{t.meterAkhir}</td>
                                             <td className="p-4 font-bold text-gray-700">{formatRp(t.total)}</td>
-                                            <td className="p-4 font-bold text-green-600">{formatRp(getTerbayar(t))}</td>
-                                            <td className="p-4 font-bold text-red-600">{formatRp(getSisa(t))}</td>
-                                            <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm cursor-pointer ${statL==='LUNAS'?'bg-green-100 text-green-700':(statL==='NYICIL'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700')}`} onClick={()=>openPayModal(p,t)} title="Klik untuk bayar">{statL}</span></td>
+                                            <td className="p-4 font-bold text-gray-500">{formatRp(getSisa(t))}</td>
+                                            <td className={`p-4 font-bold ${totalHutangKeseluruhan > 0 ? 'text-red-600 bg-red-50' : 'text-green-600'}`}>{totalHutangKeseluruhan <= 0 ? 'LUNAS' : formatRp(totalHutangKeseluruhan)}</td>
                                             <td className="p-4 text-center space-x-2">
-                                                <button onClick={()=>handleCetak(p,t)} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border" title="Cetak Struk"><i className="fas fa-print"></i></button>
-                                                <button onClick={()=>copyWA(p,t)} className="p-2 bg-green-50 hover:bg-green-100 text-green-600 rounded border border-green-200" title="Copy WA"><i className="fab fa-whatsapp"></i></button>
-                                                <button onClick={()=>openPayModal(p,t)} className="p-2 bg-yellow-50 hover:bg-yellow-100 text-yellow-600 rounded border border-yellow-200" title="Catat Pembayaran/Cicilan"><i className="fas fa-hand-holding-usd"></i></button>
-                                                <button onClick={()=>openTagihan(p)} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded border border-blue-200" title="Edit Tagihan"><i className="fas fa-edit"></i></button>
+                                                <button onClick={()=>handleCetak(p,t)} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border shadow-sm" title="Cetak Struk"><i className="fas fa-print"></i></button>
+                                                <button onClick={()=>copyWA(p,t)} className="p-2 bg-green-50 hover:bg-green-100 text-green-600 rounded border border-green-200 shadow-sm" title="Copy WA"><i className="fab fa-whatsapp"></i></button>
+                                                <button onClick={()=>openPayModal(p)} className="p-2 bg-yellow-50 hover:bg-yellow-100 text-yellow-600 rounded border border-yellow-200 shadow-sm" title="Terima Uang (Auto-Lunas Tagihan Lama)"><i className="fas fa-hand-holding-usd"></i></button>
+                                                <button onClick={()=>openTagihan(p)} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded border border-blue-200 shadow-sm" title="Edit Meteran"><i className="fas fa-edit"></i></button>
                                             </td>
                                         </tr>
                                     )
                                 })}
-                                {filteredPelanggan.length === 0 && <tr><td colSpan="8" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
+                                {filteredPelanggan.length === 0 && <tr><td colSpan="7" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
                             </tbody>
                         </table>
                     </div>
 
-                    {/* MODAL 1: INPUT/EDIT TAGIHAN UTAMA */}
+                    {/* MODAL 1: INPUT/EDIT METERAN TAGIHAN */}
                     {modal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                            <form onSubmit={simpanTagihan} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
                                 <h3 className="font-bold text-lg mb-1 text-gray-800">Data Tagihan Meteran</h3>
                                 <p className="text-sm text-gray-500 mb-4">{selP.nama} - {formatBulanTahunSingkat(periode)}</p>
                                 <div className="flex gap-3 mb-4">
                                     <div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Awal</label><input type="number" min="0" value={mAwal} onChange={e=>setMAwal(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
                                     <div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Akhir</label><input type="number" min={mAwal} value={mAkhir} onChange={e=>setMAkhir(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
                                 </div>
-                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mb-4 text-sm text-gray-700 space-y-1">
+                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mb-6 text-sm text-gray-700 space-y-1">
                                     <div className="flex justify-between"><span>Pemakaian:</span><span>{kubik} m3</span></div>
                                     <div className="flex justify-between"><span>Tarif ({formatRp(settings.tarif)}):</span><span>{formatRp(kubik * settings.tarif)}</span></div>
                                     <div className="flex justify-between pb-2 border-b border-blue-200"><span>Beban Tetap:</span><span>{formatRp(settings.beban)}</span></div>
                                     <div className="flex justify-between font-bold text-blue-900 pt-1 text-lg"><span>Total Tagihan:</span><span>{formatRp(totalHitung)}</span></div>
                                 </div>
-                                <div className="mb-6">
-                                    <label className="text-xs font-medium text-gray-600 block mb-1">Uang Sudah Dibayar (Rp)</label>
-                                    <div className="flex gap-2">
-                                        <input type="number" min="0" value={mBayar} onChange={e=>setMBayar(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-green-500 outline-none font-bold text-green-700" required/>
-                                        <button type="button" onClick={()=>setMBayar(totalHitung)} className="bg-green-100 text-green-700 px-3 rounded text-xs font-bold border border-green-200 hover:bg-green-200 whitespace-nowrap">SET LUNAS</button>
-                                    </div>
-                                </div>
                                 <div className="flex justify-end gap-3 w-full">
                                     {existT && <button type="button" onClick={()=>hapusTagihan(existT.id)} className="mr-auto px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200" title="Hapus Tagihan Bulan Ini"><i className="fas fa-trash"></i></button>}
                                     <button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button>
-                                    <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow">Simpan</button>
+                                    <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow font-medium">Simpan Meteran</button>
                                 </div>
                             </form>
                         </div>
                     )}
 
-                    {/* MODAL 2: BAYAR CEPAT (NYICIL/LUNAS) */}
+                    {/* MODAL 2: PEMBAYARAN GLOBAL (AUTO-LUNAS) */}
                     {payModal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={simpanPay} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
-                                <h3 className="font-bold text-lg mb-1 text-gray-800">Catat Pembayaran</h3>
-                                <p className="text-sm text-gray-500 mb-4">{selP.nama} - {formatBulanTahunSingkat(periode)}</p>
-                                <div className="bg-gray-50 border border-gray-200 p-4 rounded-lg mb-4 text-sm text-gray-700 space-y-1">
-                                    <div className="flex justify-between"><span>Total Tagihan:</span><span className="font-bold">{formatRp(existT.total)}</span></div>
-                                    <div className="flex justify-between text-red-600 border-t pt-1 mt-1"><span>Sisa Tunggakan:</span><span className="font-bold">{formatRp(getSisa(existT))}</span></div>
-                                </div>
-                                <div className="mb-6">
-                                    <label className="text-xs font-medium text-gray-600 block mb-1">Nominal Uang Diserahkan (Akumulasi)</label>
-                                    <input type="number" min="0" value={payNominal} onChange={e=>setPayNominal(e.target.value)} className="border p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-lg font-bold text-green-700 text-center" required/>
-                                    <div className="flex justify-between mt-2">
-                                        <button type="button" onClick={()=>setPayNominal(0)} className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">Kosongkan</button>
-                                        <button type="button" onClick={()=>setPayNominal(existT.total)} className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200">Set Lunas Full</button>
-                                    </div>
-                                </div>
-                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setPayModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow">Simpan Pembayaran</button></div>
+                            <form onSubmit={simpanPayGlobal} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                                <h3 className="font-bold text-lg mb-1 text-gray-800">Terima Pembayaran</h3>
+                                <p className="text-sm text-gray-500 mb-4">{selP.nama}</p>
+                                
+                                {(() => {
+                                    const unpaid = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0).sort((a,b)=>a.periode.localeCompare(b.periode));
+                                    const totalHutang = unpaid.reduce((s,t)=>s+getSisa(t), 0);
+                                    
+                                    return (
+                                        <>
+                                            <div className="bg-red-50 border border-red-200 p-4 rounded-lg mb-4 text-sm text-gray-700 space-y-1">
+                                                <div className="flex justify-between text-red-700"><span>Total Seluruh Tunggakan:</span><span className="font-bold text-lg">{formatRp(totalHutang)}</span></div>
+                                                {unpaid.length > 0 && <div className="text-xs text-red-500 mt-1 italic">*Tunggakan terlama: {formatBulanTahunSingkat(unpaid[0].periode)}</div>}
+                                            </div>
+                                            <div className="mb-6">
+                                                <label className="text-xs font-medium text-gray-600 block mb-1">Uang yang Diserahkan Warga (Rp)</label>
+                                                <input type="number" min="0" value={payNominal} onChange={e=>setPayNominal(e.target.value)} className="border p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-xl font-bold text-green-700 text-center" placeholder="0" required/>
+                                                <div className="flex justify-between mt-2">
+                                                    <button type="button" onClick={()=>setPayNominal(0)} className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">Kosongkan</button>
+                                                    <button type="button" onClick={()=>setPayNominal(totalHutang)} className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200 font-bold">Lunas Semua</button>
+                                                </div>
+                                            </div>
+                                            <p className="text-[10px] text-gray-400 mb-4 text-center leading-tight">Sistem otomatis akan melunasi hutang dari bulan yang paling lama terlebih dahulu secara berurutan.</p>
+                                        </>
+                                    );
+                                })()}
+
+                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setPayModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow font-bold">Proses Bayar</button></div>
                             </form>
                         </div>
                     )}
@@ -990,13 +994,15 @@ ${alignCenter('PENGURUS')}
                 reportTitle = `Laporan Bulanan - ${formatBulanTahunLengkap(filterPeriode)}`;
                 const tags = tagihan.filter(t => t.periode === filterPeriode);
                 const pemasukan = tags.reduce((s,t)=>s+getTerbayar(t),0);
-                const sisaTunggakan = tags.reduce((s,t)=>s+getSisa(t),0);
+                
                 reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div>
-                    <p>Total Tagihan Keseluruhan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
+                    <p>Total Tagihan Bulan Ini: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
                     <p>Total Uang Masuk (Dibayar): <strong style="color:green">${formatRp(pemasukan)}</strong></p>
-                    <p>Total Sisa Tunggakan: <strong style="color:red">${formatRp(sisaTunggakan)}</strong></p>
-                    <table><thead><tr><th>No</th><th>Nama</th><th>Tagihan</th><th>Dibayar</th><th>Sisa</th><th>Status</th></tr></thead><tbody>
-                    ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right">${formatRp(getSisa(t))}</td><td class="text-center">${getStatusLabel(t)}</td></tr>`).join('')}
+                    <table><thead><tr><th>No</th><th>Nama</th><th>Tagihan Bln Ini</th><th>Dibayar</th><th>Sisa Bln Ini</th><th>Total Seluruh Tunggakan</th></tr></thead><tbody>
+                    ${tags.map(t => {
+                        const totalHutang = tagihan.filter(x => x.idPelanggan === t.idPelanggan).reduce((s, x) => s + getSisa(x), 0);
+                        return `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right">${formatRp(getSisa(t))}</td><td class="text-right font-bold ${totalHutang>0?'color:red;':''}">${formatRp(totalHutang)}</td></tr>`;
+                    }).join('')}
                     ${tags.length===0?'<tr><td colspan="6" class="text-center">Tidak ada data</td></tr>':''}</tbody></table>`;
             } else if (reportType === 'tahunan') {
                 reportTitle = `Laporan Pendapatan Tahunan - ${filterTahun}`;
@@ -1005,7 +1011,7 @@ ${alignCenter('PENGURUS')}
                     const tags = tagihan.filter(t => t.periode === `${filterTahun}-${m}`);
                     return { bulan: m, total: tags.reduce((s,t)=>s+t.total,0), lunas: tags.reduce((s,t)=>s+getTerbayar(t),0), tunggak: tags.reduce((s,t)=>s+getSisa(t),0), totalP: tags.length };
                 });
-                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><table><thead><tr><th>Bulan</th><th>Ditagih (Orang)</th><th>Total Tagihan</th><th>Pemasukan Lunas</th><th>Sisa Tunggakan</th></tr></thead><tbody>
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><table><thead><tr><th>Bulan</th><th>Ditagih (Orang)</th><th>Total Tagihan</th><th>Pemasukan (Uang Masuk)</th><th>Sisa Tunggakan</th></tr></thead><tbody>
                     ${data.map(m => `<tr><td class="text-center">${m.bulan}-${filterTahun}</td><td class="text-center">${m.totalP}</td><td class="text-right">${formatRp(m.total)}</td><td class="text-right">${formatRp(m.lunas)}</td><td class="text-right">${formatRp(m.tunggak)}</td></tr>`).join('')}
                     </tbody><tfoot><tr style="font-weight:bold;background:#eee;"><td colspan="2" class="text-center">TOTAL KESELURUHAN</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.total,0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.lunas,0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.tunggak,0))}</td></tr></tfoot></table>`;
             } else if (reportType === 'tunggakan_bulan') {
@@ -1016,22 +1022,33 @@ ${alignCenter('PENGURUS')}
                     ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right font-bold" style="color:red">${formatRp(getSisa(t))}</td></tr>`).join('')}
                     ${tags.length===0?'<tr><td colspan="5" class="text-center">Aman, tidak ada tunggakan</td></tr>':''}</tbody></table>`;
             } else {
-                reportTitle = `Laporan Tunggakan Pertahun - ${filterTahun}`;
-                const tags = tagihan.filter(t => t.periode.startsWith(filterTahun) && getSisa(t) > 0);
-                const grouped = tags.reduce((acc, t) => { if(!acc[t.idPelanggan]) acc[t.idPelanggan]={tot:0, bayar:0, sisa:0, b:[]}; acc[t.idPelanggan].tot+=t.total; acc[t.idPelanggan].bayar+=getTerbayar(t); acc[t.idPelanggan].sisa+=getSisa(t); acc[t.idPelanggan].b.push(t.periode.split('-')[1]); return acc; }, {});
-                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><p>Total Seluruh Tunggakan Tahun ${filterTahun}: <strong style="color:red">${formatRp(tags.reduce((s,t)=>s+getSisa(t),0))}</strong></p>
-                    <table><thead><tr><th>No</th><th>Nama</th><th>Bulan Menunggak</th><th>Total Tagihan</th><th>Dibayar</th><th>Sisa Tunggakan</th></tr></thead><tbody>
-                    ${Object.keys(grouped).map(id => `<tr><td>${getNo(id)}</td><td>${getName(id)}</td><td>${grouped[id].b.join(', ')}</td><td class="text-right">${formatRp(grouped[id].tot)}</td><td class="text-right">${formatRp(grouped[id].bayar)}</td><td class="text-right font-bold" style="color:red">${formatRp(grouped[id].sisa)}</td></tr>`).join('')}
-                    ${Object.keys(grouped).length===0?'<tr><td colspan="6" class="text-center">Aman, tidak ada tunggakan tahun ini</td></tr>':''}</tbody></table>`;
+                reportTitle = `Laporan Tunggakan Keseluruhan`;
+                
+                // Group by customer for ALL time, not just this year
+                const grouped = tagihan.filter(t => getSisa(t) > 0).reduce((acc, t) => { 
+                    if(!acc[t.idPelanggan]) acc[t.idPelanggan]={tot:0, bayar:0, sisa:0, b:[]}; 
+                    acc[t.idPelanggan].tot+=t.total; 
+                    acc[t.idPelanggan].bayar+=getTerbayar(t); 
+                    acc[t.idPelanggan].sisa+=getSisa(t); 
+                    acc[t.idPelanggan].b.push(formatBulanTahunSingkat(t.periode)); 
+                    return acc; 
+                }, {});
+
+                const grandTotal = Object.values(grouped).reduce((s, g) => s + g.sisa, 0);
+
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><p>Total Seluruh Uang Menunggak (Semua Tahun): <strong style="color:red">${formatRp(grandTotal)}</strong></p>
+                    <table><thead><tr><th>No</th><th>Nama</th><th>Bulan Menunggak</th><th>Sisa Tunggakan</th></tr></thead><tbody>
+                    ${Object.keys(grouped).map(id => `<tr><td>${getNo(id)}</td><td>${getName(id)}</td><td style="font-size:10px;">${grouped[id].b.join(', ')}</td><td class="text-right font-bold" style="color:red">${formatRp(grouped[id].sisa)}</td></tr>`).join('')}
+                    ${Object.keys(grouped).length===0?'<tr><td colspan="4" class="text-center">Luar Biasa, tidak ada satupun tunggakan!</td></tr>':''}</tbody></table>`;
             }
 
             return (
                 <div className="space-y-6">
                     <h2 className="text-2xl font-bold border-b pb-4 text-gray-800">Pusat Pelaporan</h2>
                     <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm flex flex-wrap gap-4 items-end">
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Jenis Laporan</label><select value={reportType} onChange={e=>setReportType(e.target.value)} className="border p-2 rounded-lg outline-none text-sm min-w-[200px] bg-white"><option value="bulanan">Bulanan (Semua Data)</option><option value="tahunan">Tahunan (Pendapatan)</option><option value="tunggakan_bulan">Tunggakan (Perbulan)</option><option value="tunggakan_tahun">Tunggakan (Pertahun)</option></select></div>
+                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Jenis Laporan</label><select value={reportType} onChange={e=>setReportType(e.target.value)} className="border p-2 rounded-lg outline-none text-sm min-w-[200px] bg-white"><option value="bulanan">Bulanan (Semua Data)</option><option value="tahunan">Tahunan (Pendapatan)</option><option value="tunggakan_bulan">Tunggakan (Perbulan)</option><option value="tunggakan_tahun">Tunggakan (Semua Tunggakan)</option></select></div>
                         {(reportType==='bulanan'||reportType==='tunggakan_bulan') && <div><label className="block text-sm font-medium text-gray-700 mb-1">Periode</label><input type="month" value={filterPeriode} onChange={e=>setFilterPeriode(e.target.value)} className="border p-2 rounded-lg outline-none text-sm" /></div>}
-                        {(reportType==='tahunan'||reportType==='tunggakan_tahun') && <div><label className="block text-sm font-medium text-gray-700 mb-1">Tahun</label><input type="number" value={filterTahun} onChange={e=>setFilterTahun(e.target.value)} className="border p-2 rounded-lg outline-none text-sm w-32" /></div>}
+                        {(reportType==='tahunan') && <div><label className="block text-sm font-medium text-gray-700 mb-1">Tahun</label><input type="number" value={filterTahun} onChange={e=>setFilterTahun(e.target.value)} className="border p-2 rounded-lg outline-none text-sm w-32" /></div>}
                         <button onClick={()=>printContent(reportHtml, 'a4')} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg flex items-center text-sm font-medium shadow-sm md:ml-auto"><i className="fas fa-print mr-2"></i> Cetak A4</button>
                     </div>
                     <div className="bg-white p-8 rounded-xl border shadow-sm min-h-[500px] overflow-x-auto print-preview-container"><div dangerouslySetInnerHTML={{ __html: reportHtml.replace(/<table/g, '<table class="w-full border-collapse border border-gray-300"').replace(/<th/g, '<th class="border border-gray-300 bg-gray-100 p-2 text-center"').replace(/<td/g, '<td class="border border-gray-300 p-2"') }} /></div>
