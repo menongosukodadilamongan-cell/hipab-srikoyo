@@ -83,6 +83,28 @@
             finally { document.body.removeChild(textArea); }
         };
 
+        // --- SISTEM PEMBAYARAN FLEKSIBEL (CICILAN) ---
+        const getTerbayar = (t) => {
+            if (!t) return 0;
+            if (t.terbayar !== undefined) return Number(t.terbayar);
+            // Fallback untuk data lama yang belum punya field "terbayar"
+            return t.status === 'Terbayar' ? Number(t.total) : 0;
+        };
+
+        const getSisa = (t) => {
+            if (!t) return 0;
+            return Math.max(0, t.total - getTerbayar(t));
+        };
+
+        const getStatusLabel = (t) => {
+            if (!t) return '-';
+            const sisa = getSisa(t);
+            const terbayar = getTerbayar(t);
+            if (sisa <= 0) return 'LUNAS';
+            if (terbayar > 0) return 'NYICIL';
+            return 'BELUM';
+        };
+
         // Bantuan Format Struk Thermal Bluetooth (Lebar 32 Karakter)
         const alignCenter = (text) => {
             const str = String(text);
@@ -224,7 +246,7 @@
                 }} showToast={showToast} />;
             }
 
-            // KUNCI PERBAIKAN: Hanya menghitung tagihan yang pelanggannya masih ada di daftar pelanggan
+            // Memastikan data yang dihitung hanya dari pelanggan yang masih ada
             const validTagihanData = tagihanData.filter(t => pelangganData.some(p => p.id === t.idPelanggan));
 
             return (
@@ -301,7 +323,6 @@
 
                         {/* Area Konten Utama */}
                         <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8">
-                            {/* Menggunakan validTagihanData agar tagihan dari pelanggan yang dihapus tidak ikut dihitung */}
                             {activeTab === 'dashboard' && <Dashboard pelanggan={pelangganData} tagihan={validTagihanData} />}
                             {activeTab === 'pelanggan' && <PelangganManager data={pelangganData} showToast={showToast} />}
                             {activeTab === 'tagihan' && <TagihanManager pelanggan={pelangganData} tagihan={validTagihanData} settings={settings} showToast={showToast} />}
@@ -369,9 +390,9 @@
             const pelangganAktif = pelanggan.filter(p=>p.status==='Aktif').length;
             
             const tagihanBulanIni = tagihan.filter(t => t.periode === currentMonth);
-            const pemasukan = tagihanBulanIni.filter(t => t.status === 'Terbayar').reduce((s, t) => s + t.total, 0);
-            const tunggakan = tagihanBulanIni.filter(t => t.status === 'Belum Terbayar').reduce((s, t) => s + t.total, 0);
-            const totalTunggakan = tagihan.filter(t => t.status === 'Belum Terbayar').reduce((s, t) => s + t.total, 0);
+            const pemasukan = tagihanBulanIni.reduce((s, t) => s + getTerbayar(t), 0);
+            const tunggakan = tagihanBulanIni.reduce((s, t) => s + getSisa(t), 0);
+            const totalTunggakan = tagihan.reduce((s, t) => s + getSisa(t), 0);
 
             const last6Months = Array.from({length: 6}, (_, i) => {
                 const d = new Date(); d.setMonth(d.getMonth() - i);
@@ -380,7 +401,7 @@
 
             const chartData = last6Months.map(month => ({
                 label: formatBulanTahunSingkat(month),
-                value: tagihan.filter(t => t.periode === month && t.status === 'Terbayar').reduce((s, t) => s + t.total, 0)
+                value: tagihan.filter(t => t.periode === month).reduce((s, t) => s + getTerbayar(t), 0)
             }));
             const maxVal = Math.max(...chartData.map(d => d.value), 100000);
 
@@ -562,43 +583,56 @@
         }
 
         // ==========================================
-        // MANAJEMEN TAGIHAN
+        // MANAJEMEN TAGIHAN (DENGAN SISTEM NYICIL)
         // ==========================================
         function TagihanManager({ pelanggan, tagihan, settings, showToast }) {
             const [periode, setPeriode] = useState(new Date().toISOString().slice(0, 7));
             const [search, setSearch] = useState('');
             const [filterStatus, setFilterStatus] = useState('Semua');
             const [sortBy, setSortBy] = useState('noPelanggan');
+            
             const [modal, setModal] = useState(false); const [selP, setSelP] = useState(null);
             const [existT, setExistT] = useState(null);
             const [mAwal, setMAwal] = useState(''); const [mAkhir, setMAkhir] = useState('');
+            const [mBayar, setMBayar] = useState(''); // State untuk nyicil saat edit
+
+            const [payModal, setPayModal] = useState(false);
+            const [payNominal, setPayNominal] = useState('');
 
             const kubik = Math.max(0, Number(mAkhir) - Number(mAwal));
             const totalHitung = (kubik * settings.tarif) + settings.beban;
 
-            // Fitur Bonus: Ringkasan Tagihan Bulan Ini
+            // Ringkasan Bulan Ini (Berdasarkan uang riil yang dibayar)
             const summaryTotal = tagihan.filter(t => t.periode === periode).reduce((s, t) => s + t.total, 0);
-            const summaryLunas = tagihan.filter(t => t.periode === periode && t.status === 'Terbayar').reduce((s, t) => s + t.total, 0);
-            const summaryBelum = tagihan.filter(t => t.periode === periode && t.status === 'Belum Terbayar').reduce((s, t) => s + t.total, 0);
+            const summaryLunas = tagihan.filter(t => t.periode === periode).reduce((s, t) => s + getTerbayar(t), 0);
+            const summaryBelum = tagihan.filter(t => t.periode === periode).reduce((s, t) => s + getSisa(t), 0);
 
+            // Buka Modal Buat/Edit Tagihan Utama
             const openTagihan = (p) => {
                 const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
                 setSelP(p); setExistT(t);
                 if(t) { 
                     setMAwal(t.meterAwal); setMAkhir(t.meterAkhir); 
+                    setMBayar(getTerbayar(t));
                 } else { 
                     const [y, m] = periode.split('-'); let prevM = parseInt(m) - 1; let prevY = parseInt(y);
                     if(prevM === 0) { prevM = 12; prevY -= 1; }
                     const prevPer = `${prevY}-${prevM.toString().padStart(2, '0')}`;
                     const tLalu = tagihan.find(x => x.idPelanggan === p.id && x.periode === prevPer);
                     setMAwal(tLalu ? tLalu.meterAkhir : '0'); setMAkhir(''); 
+                    setMBayar(0);
                 }
                 setModal(true);
             };
 
             const simpan = async (e) => {
                 e.preventDefault();
-                const payload = { idPelanggan: selP.id, periode, meterAwal: Number(mAwal), meterAkhir: Number(mAkhir), total: totalHitung, status: existT ? existT.status : 'Belum Terbayar' };
+                const payload = { 
+                    idPelanggan: selP.id, periode, 
+                    meterAwal: Number(mAwal), meterAkhir: Number(mAkhir), 
+                    total: totalHitung, terbayar: Number(mBayar),
+                    status: Number(mBayar) >= totalHitung ? 'Terbayar' : 'Belum Terbayar' // Legacy sync
+                };
                 try {
                     if(existT) await DB_PUSAT.collection('tagihan').doc(existT.id).update(payload); 
                     else await DB_PUSAT.collection('tagihan').add(payload);
@@ -606,28 +640,39 @@
                 } catch(err) { alert(err.message); }
             };
 
-            // Menghapus Tagihan Spesifik
+            // Buka Modal Khusus Pembayaran/Nyicil Cepat
+            const openPayModal = (p, t) => {
+                setSelP(p); setExistT(t);
+                setPayNominal(getTerbayar(t));
+                setPayModal(true);
+            };
+
+            const simpanPay = async (e) => {
+                e.preventDefault();
+                const num = Number(payNominal);
+                try {
+                    await DB_PUSAT.collection('tagihan').doc(existT.id).update({
+                        terbayar: num,
+                        status: num >= existT.total ? 'Terbayar' : 'Belum Terbayar'
+                    });
+                    setPayModal(false); showToast('Pembayaran Dicatat');
+                } catch(err) { alert(err.message); }
+            };
+
             const hapusTagihan = async (id) => {
                 if(window.confirm('Hapus tagihan bulan ini secara permanen?')) {
                     try {
                         await DB_PUSAT.collection('tagihan').doc(id).delete();
-                        setModal(false);
-                        showToast('Tagihan Berhasil Dihapus');
+                        setModal(false); showToast('Tagihan Dihapus');
                     } catch(err) { alert(err.message); }
                 }
             };
 
-            const toggleStatus = async (t) => {
-                await DB_PUSAT.collection('tagihan').doc(t.id).update({ status: t.status === 'Terbayar' ? 'Belum Terbayar' : 'Terbayar' });
-                showToast(`Status Pembayaran Diubah`);
-            };
-
             const copyWA = (p, t) => {
-                const msg = `Yth. Bapak/Ibu ${p.nama},\n\nBersama pesan ini, kami sampaikan rincian tagihan air bersih ${settings.appName} untuk periode ${formatBulanTahunLengkap(t.periode)}.\n\n*Rincian Penggunaan:*\n- Meter Awal : ${t.meterAwal}\n- Meter Akhir: ${t.meterAkhir}\n- Pemakaian  : ${t.meterAkhir - t.meterAwal} m3\n\n*Total Tagihan: ${formatRp(t.total)}*\nStatus: ${t.status === 'Terbayar' ? 'LUNAS ✅' : 'BELUM TERBAYAR ❌'}\n\nDemikian informasi ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.\n\nHormat kami,\nPengelola ${settings.appName}`;
+                const msg = `Yth. Bapak/Ibu ${p.nama},\n\nBersama pesan ini, kami sampaikan rincian tagihan air bersih ${settings.appName} untuk periode ${formatBulanTahunLengkap(t.periode)}.\n\n*Rincian Penggunaan:*\n- Meter Awal : ${t.meterAwal}\n- Meter Akhir: ${t.meterAkhir}\n- Pemakaian  : ${t.meterAkhir - t.meterAwal} m3\n\n*Total Tagihan : ${formatRp(t.total)}*\n*Sudah Dibayar : ${formatRp(getTerbayar(t))}*\n*Sisa Tunggakan: ${formatRp(getSisa(t))}*\n\nStatus: ${getStatusLabel(t) === 'LUNAS' ? 'LUNAS ✅' : (getStatusLabel(t) === 'NYICIL' ? 'DICICIL / SEBAGIAN' : 'BELUM TERBAYAR ❌')}\n\nDemikian informasi ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.\n\nHormat kami,\nPengelola ${settings.appName}`;
                 copyToClipboard(msg); showToast("Pesan WA Disalin!");
             };
 
-            // Format Cetak PC
             const cetakStrukPC = (p, t) => {
                 const pemakaian = t.meterAkhir - t.meterAwal;
                 const html = `
@@ -646,11 +691,13 @@
                         <tr><td>M. AKHIR</td><td class="text-right">${t.meterAkhir}</td></tr>
                         <tr><td>PEMAKAIAN</td><td class="text-right">${pemakaian} m3</td></tr>
                     </table><hr />
-                    <div class="bold" style="display:flex; justify-content:space-between; font-size:14px; margin: 4px 0;">
-                        <span>TOTAL</span><span>${formatRp(t.total)}</span>
-                    </div><hr />
+                    <table>
+                        <tr class="bold"><td>TAGIHAN</td><td class="text-right">${formatRp(t.total)}</td></tr>
+                        <tr><td>DIBAYAR</td><td class="text-right">${formatRp(getTerbayar(t))}</td></tr>
+                        <tr style="color:red;"><td>SISA</td><td class="text-right">${formatRp(getSisa(t))}</td></tr>
+                    </table><hr />
                     <div class="text-center" style="margin-top:8px;">
-                        <div class="bold" style="font-size:16px;">${t.status === 'Terbayar' ? 'LUNAS' : 'BELUM LUNAS'}</div>
+                        <div class="bold" style="font-size:16px;">${getStatusLabel(t) === 'LUNAS' ? 'LUNAS' : (getStatusLabel(t) === 'NYICIL' ? 'NYICIL' : 'BELUM LUNAS')}</div>
                         <div style="font-size:11px; margin-top: 4px;">TGL BAYAR: ${getCurrentDate()}</div>
                         <div style="margin-top:12px; font-size:11px;">TERIMA KASIH</div>
                         <div style="margin-top:4px; font-size:11px;">HORMAT KAMI, PENGURUS</div>
@@ -658,7 +705,6 @@
                 printContent(html, 'receipt');
             };
 
-            // Format Cetak HP (Thermal Teks 32 Karakter)
             const cetakStrukHP = (p, t) => {
                 const text = 
 `${alignCenter(settings.appName.toUpperCase())}
@@ -672,9 +718,11 @@ ${alignLeftRight('M. AWAL', t.meterAwal)}
 ${alignLeftRight('M. AKHIR', t.meterAkhir)}
 ${alignLeftRight('PEMAKAIAN', (t.meterAkhir - t.meterAwal) + ' m3')}
 --------------------------------
-${alignLeftRight('TOTAL', formatRp(t.total))}
+${alignLeftRight('TAGIHAN', formatRp(t.total))}
+${alignLeftRight('DIBAYAR', formatRp(getTerbayar(t)))}
+${alignLeftRight('SISA', formatRp(getSisa(t)))}
 --------------------------------
-${alignCenter(t.status === 'Terbayar' ? '*** LUNAS ***' : 'BELUM LUNAS')}
+${alignCenter(getStatusLabel(t) === 'LUNAS' ? '*** LUNAS ***' : (getStatusLabel(t) === 'NYICIL' ? '** NYICIL **' : 'BELUM LUNAS'))}
 TGL BAYAR: ${getCurrentDate()}
 
 ${alignCenter('TERIMA KASIH')}
@@ -682,23 +730,17 @@ ${alignCenter('HORMAT KAMI,')}
 ${alignCenter('PENGURUS')}
 
 `;
-                
                 if (navigator.share) {
                     navigator.share({ title: 'Struk Pembayaran', text: text })
-                    .catch(err => { copyToClipboard(text); showToast("Teks disalin! Paste di aplikasi printer Anda."); });
+                    .catch(err => { copyToClipboard(text); showToast("Teks disalin! Paste di aplikasi printer."); });
                 } else {
-                    copyToClipboard(text); showToast("Teks disalin! Paste di aplikasi printer Anda.");
+                    copyToClipboard(text); showToast("Teks disalin! Paste di aplikasi printer.");
                 }
             };
 
-            // Logika Universal untuk Tombol Print
             const handleCetak = (p, t) => {
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
-                if (isMobile) {
-                    cetakStrukHP(p, t);
-                } else {
-                    cetakStrukPC(p, t);
-                }
+                if (isMobile) cetakStrukHP(p, t); else cetakStrukPC(p, t);
             };
 
             const filteredPelanggan = pelanggan
@@ -706,28 +748,23 @@ ${alignCenter('PENGURUS')}
                 .filter(p => {
                     const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
                     if(filterStatus === 'Semua') return true;
-                    if(filterStatus === 'Terbayar') return t && t.status === 'Terbayar';
-                    if(filterStatus === 'Belum Terbayar') return !t || t.status === 'Belum Terbayar';
+                    const stat = getStatusLabel(t);
+                    return stat === filterStatus;
                 })
                 .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
                 .sort((a, b) => {
-                    if (sortBy === 'noPelanggan') {
-                        return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
-                    } else if (sortBy === 'rtRw') {
-                        const rtRwA = `${a.rt}/${a.rw}`;
-                        const rtRwB = `${b.rt}/${b.rw}`;
-                        return rtRwA.localeCompare(rtRwB, undefined, {numeric: true, sensitivity: 'base'});
-                    }
+                    if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
+                    if (sortBy === 'rtRw') return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true, sensitivity: 'base'});
                     return 0;
                 });
 
             return (
                 <div className="space-y-4">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Tagihan</h2>
+                        <h2 className="text-2xl font-bold text-gray-800">Tagihan & Pembayaran</h2>
                         <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
                             <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
-                                <option value="Semua">Semua Tagihan</option><option value="Belum Terbayar">Belum Lunas</option><option value="Terbayar">Lunas</option>
+                                <option value="Semua">Semua Tagihan</option><option value="BELUM">Belum Bayar</option><option value="NYICIL">Nyicil (Sebagian)</option><option value="LUNAS">Lunas</option>
                             </select>
                             <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
                                 <option value="noPelanggan">Urut: No. Pelanggan</option><option value="rtRw">Urut: RT / RW</option>
@@ -750,7 +787,7 @@ ${alignCenter('PENGURUS')}
                             <p className="text-sm md:text-lg font-bold text-blue-900">{formatRp(summaryTotal)}</p>
                         </div>
                         <div className="bg-green-50 border border-green-100 p-3 rounded-xl text-center shadow-sm">
-                            <p className="text-[10px] md:text-xs text-green-600 font-bold uppercase mb-1">Sudah Lunas</p>
+                            <p className="text-[10px] md:text-xs text-green-600 font-bold uppercase mb-1">Sudah Dibayar</p>
                             <p className="text-sm md:text-lg font-bold text-green-900">{formatRp(summaryLunas)}</p>
                         </div>
                         <div className="bg-red-50 border border-red-100 p-3 rounded-xl text-center shadow-sm">
@@ -761,53 +798,87 @@ ${alignCenter('PENGURUS')}
 
                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
                         <table className="w-full text-sm text-left whitespace-nowrap">
-                            <thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">Pelanggan</th><th className="p-4">M.Awal</th><th className="p-4">M.Akhir</th><th className="p-4">Total</th><th className="p-4 text-center">Status</th><th className="p-4 text-center">Aksi (Struk/WA/Edit)</th></tr></thead>
+                            <thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">Pelanggan</th><th className="p-4">M.Awal</th><th className="p-4">M.Akhir</th><th className="p-4">Tagihan</th><th className="p-4">Dibayar</th><th className="p-4">Sisa</th><th className="p-4 text-center">Status</th><th className="p-4 text-center">Aksi</th></tr></thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredPelanggan.map(p => {
                                     const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
+                                    if(!t) return (
+                                        <tr key={p.id} className="hover:bg-gray-50"><td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan}</div></td><td colSpan="7" className="p-4 text-center"><button onClick={()=>openTagihan(p)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs shadow-sm"><i className="fas fa-plus mr-1"></i> Buat Tagihan</button></td></tr>
+                                    );
+                                    const statL = getStatusLabel(t);
                                     return (
                                         <tr key={p.id} className="hover:bg-gray-50">
                                             <td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan}</div></td>
-                                        {t ? (
-                                            <>
-                                                <td className="p-4">{t.meterAwal}</td><td className="p-4">{t.meterAkhir}</td><td className="p-4 font-bold">{formatRp(t.total)}</td>
-                                                <td className="p-4 text-center"><button onClick={()=>toggleStatus(t)} className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${t.status==='Terbayar'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{t.status}</button></td>
-                                                <td className="p-4 text-center space-x-2">
-                                                    <button onClick={()=>handleCetak(p,t)} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border" title="Cetak Struk"><i className="fas fa-print"></i></button>
-                                                    <button onClick={()=>copyWA(p,t)} className="p-2 bg-green-50 hover:bg-green-100 text-green-600 rounded border border-green-200" title="Copy WA"><i className="fab fa-whatsapp"></i></button>
-                                                    <button onClick={()=>openTagihan(p)} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded border border-blue-200" title="Edit"><i className="fas fa-edit"></i></button>
-                                                </td>
-                                            </>
-                                        ) : (<td colSpan="5" className="p-4 text-center"><button onClick={()=>openTagihan(p)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs shadow-sm"><i className="fas fa-plus mr-1"></i> Buat Tagihan</button></td>)}
+                                            <td className="p-4">{t.meterAwal}</td><td className="p-4">{t.meterAkhir}</td>
+                                            <td className="p-4 font-bold text-gray-700">{formatRp(t.total)}</td>
+                                            <td className="p-4 font-bold text-green-600">{formatRp(getTerbayar(t))}</td>
+                                            <td className="p-4 font-bold text-red-600">{formatRp(getSisa(t))}</td>
+                                            <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm cursor-pointer ${statL==='LUNAS'?'bg-green-100 text-green-700':(statL==='NYICIL'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700')}`} onClick={()=>openPayModal(p,t)} title="Klik untuk bayar">{statL}</span></td>
+                                            <td className="p-4 text-center space-x-2">
+                                                <button onClick={()=>handleCetak(p,t)} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border" title="Cetak Struk"><i className="fas fa-print"></i></button>
+                                                <button onClick={()=>copyWA(p,t)} className="p-2 bg-green-50 hover:bg-green-100 text-green-600 rounded border border-green-200" title="Copy WA"><i className="fab fa-whatsapp"></i></button>
+                                                <button onClick={()=>openPayModal(p,t)} className="p-2 bg-yellow-50 hover:bg-yellow-100 text-yellow-600 rounded border border-yellow-200" title="Catat Pembayaran/Cicilan"><i className="fas fa-hand-holding-usd"></i></button>
+                                                <button onClick={()=>openTagihan(p)} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded border border-blue-200" title="Edit Tagihan"><i className="fas fa-edit"></i></button>
+                                            </td>
                                         </tr>
                                     )
                                 })}
-                                {filteredPelanggan.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
+                                {filteredPelanggan.length === 0 && <tr><td colSpan="8" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
                             </tbody>
                         </table>
                     </div>
 
+                    {/* MODAL 1: INPUT/EDIT TAGIHAN UTAMA */}
                     {modal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
-                                <h3 className="font-bold text-lg mb-1 text-gray-800">Input/Edit Tagihan</h3>
+                                <h3 className="font-bold text-lg mb-1 text-gray-800">Data Tagihan Meteran</h3>
                                 <p className="text-sm text-gray-500 mb-4">{selP.nama} - {formatBulanTahunSingkat(periode)}</p>
                                 <div className="flex gap-3 mb-4">
                                     <div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Awal</label><input type="number" min="0" value={mAwal} onChange={e=>setMAwal(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
                                     <div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Akhir</label><input type="number" min={mAwal} value={mAkhir} onChange={e=>setMAkhir(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
                                 </div>
-                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mb-6 text-sm text-gray-700 space-y-1">
+                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mb-4 text-sm text-gray-700 space-y-1">
                                     <div className="flex justify-between"><span>Pemakaian:</span><span>{kubik} m3</span></div>
                                     <div className="flex justify-between"><span>Tarif ({formatRp(settings.tarif)}):</span><span>{formatRp(kubik * settings.tarif)}</span></div>
                                     <div className="flex justify-between pb-2 border-b border-blue-200"><span>Beban Tetap:</span><span>{formatRp(settings.beban)}</span></div>
-                                    <div className="flex justify-between font-bold text-blue-900 pt-1 text-lg"><span>Total:</span><span>{formatRp(totalHitung)}</span></div>
+                                    <div className="flex justify-between font-bold text-blue-900 pt-1 text-lg"><span>Total Tagihan:</span><span>{formatRp(totalHitung)}</span></div>
+                                </div>
+                                <div className="mb-6">
+                                    <label className="text-xs font-medium text-gray-600 block mb-1">Uang Sudah Dibayar (Rp)</label>
+                                    <div className="flex gap-2">
+                                        <input type="number" min="0" value={mBayar} onChange={e=>setMBayar(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-green-500 outline-none font-bold text-green-700" required/>
+                                        <button type="button" onClick={()=>setMBayar(totalHitung)} className="bg-green-100 text-green-700 px-3 rounded text-xs font-bold border border-green-200 hover:bg-green-200 whitespace-nowrap">SET LUNAS</button>
+                                    </div>
                                 </div>
                                 <div className="flex justify-end gap-3 w-full">
-                                    {/* Tombol Khusus Hapus Tagihan */}
                                     {existT && <button type="button" onClick={()=>hapusTagihan(existT.id)} className="mr-auto px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200" title="Hapus Tagihan Bulan Ini"><i className="fas fa-trash"></i></button>}
                                     <button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button>
                                     <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow">Simpan</button>
                                 </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* MODAL 2: BAYAR CEPAT (NYICIL/LUNAS) */}
+                    {payModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={simpanPay} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                                <h3 className="font-bold text-lg mb-1 text-gray-800">Catat Pembayaran</h3>
+                                <p className="text-sm text-gray-500 mb-4">{selP.nama} - {formatBulanTahunSingkat(periode)}</p>
+                                <div className="bg-gray-50 border border-gray-200 p-4 rounded-lg mb-4 text-sm text-gray-700 space-y-1">
+                                    <div className="flex justify-between"><span>Total Tagihan:</span><span className="font-bold">{formatRp(existT.total)}</span></div>
+                                    <div className="flex justify-between text-red-600 border-t pt-1 mt-1"><span>Sisa Tunggakan:</span><span className="font-bold">{formatRp(getSisa(existT))}</span></div>
+                                </div>
+                                <div className="mb-6">
+                                    <label className="text-xs font-medium text-gray-600 block mb-1">Nominal Uang Diserahkan (Akumulasi)</label>
+                                    <input type="number" min="0" value={payNominal} onChange={e=>setPayNominal(e.target.value)} className="border p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-lg font-bold text-green-700 text-center" required/>
+                                    <div className="flex justify-between mt-2">
+                                        <button type="button" onClick={()=>setPayNominal(0)} className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">Kosongkan</button>
+                                        <button type="button" onClick={()=>setPayNominal(existT.total)} className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200">Set Lunas Full</button>
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setPayModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow">Simpan Pembayaran</button></div>
                             </form>
                         </div>
                     )}
@@ -918,39 +989,40 @@ ${alignCenter('PENGURUS')}
             if (reportType === 'bulanan') {
                 reportTitle = `Laporan Bulanan - ${formatBulanTahunLengkap(filterPeriode)}`;
                 const tags = tagihan.filter(t => t.periode === filterPeriode);
-                const terbayar = tags.filter(t => t.status === 'Terbayar');
-                const belum = tags.filter(t => t.status === 'Belum Terbayar');
+                const pemasukan = tags.reduce((s,t)=>s+getTerbayar(t),0);
+                const sisaTunggakan = tags.reduce((s,t)=>s+getSisa(t),0);
                 reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div>
-                    <p>Total Pemasukan (Lunas): <strong>${formatRp(terbayar.reduce((s,t)=>s+t.total,0))}</strong> (${terbayar.length} Pelanggan)</p>
-                    <p>Total Tunggakan: <strong>${formatRp(belum.reduce((s,t)=>s+t.total,0))}</strong> (${belum.length} Pelanggan)</p>
-                    <table><thead><tr><th>No. Pel</th><th>Nama</th><th>M.Awal</th><th>M.Akhir</th><th>Total Tagihan</th><th>Status</th></tr></thead><tbody>
-                    ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-center">${t.meterAwal}</td><td class="text-center">${t.meterAkhir}</td><td class="text-right">${formatRp(t.total)}</td><td>${t.status==='Terbayar'?'Lunas':'Belum'}</td></tr>`).join('')}
+                    <p>Total Tagihan Keseluruhan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
+                    <p>Total Uang Masuk (Dibayar): <strong style="color:green">${formatRp(pemasukan)}</strong></p>
+                    <p>Total Sisa Tunggakan: <strong style="color:red">${formatRp(sisaTunggakan)}</strong></p>
+                    <table><thead><tr><th>No</th><th>Nama</th><th>Tagihan</th><th>Dibayar</th><th>Sisa</th><th>Status</th></tr></thead><tbody>
+                    ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right">${formatRp(getSisa(t))}</td><td class="text-center">${getStatusLabel(t)}</td></tr>`).join('')}
                     ${tags.length===0?'<tr><td colspan="6" class="text-center">Tidak ada data</td></tr>':''}</tbody></table>`;
             } else if (reportType === 'tahunan') {
                 reportTitle = `Laporan Pendapatan Tahunan - ${filterTahun}`;
                 const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
                 const data = months.map(m => {
                     const tags = tagihan.filter(t => t.periode === `${filterTahun}-${m}`);
-                    return { bulan: m, lunas: tags.filter(t=>t.status==='Terbayar').reduce((s,t)=>s+t.total,0), tunggak: tags.filter(t=>t.status==='Belum Terbayar').reduce((s,t)=>s+t.total,0), totalP: tags.length };
+                    return { bulan: m, total: tags.reduce((s,t)=>s+t.total,0), lunas: tags.reduce((s,t)=>s+getTerbayar(t),0), tunggak: tags.reduce((s,t)=>s+getSisa(t),0), totalP: tags.length };
                 });
-                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><table><thead><tr><th>Bulan</th><th>Ditagih (Orang)</th><th>Pemasukan Lunas</th><th>Sisa Tunggakan</th></tr></thead><tbody>
-                    ${data.map(m => `<tr><td class="text-center">${m.bulan}-${filterTahun}</td><td class="text-center">${m.totalP}</td><td class="text-right">${formatRp(m.lunas)}</td><td class="text-right">${formatRp(m.tunggak)}</td></tr>`).join('')}
-                    </tbody><tfoot><tr style="font-weight:bold;background:#eee;"><td colspan="2" class="text-center">TOTAL KESELURUHAN</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.lunas,0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.tunggak,0))}</td></tr></tfoot></table>`;
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><table><thead><tr><th>Bulan</th><th>Ditagih (Orang)</th><th>Total Tagihan</th><th>Pemasukan Lunas</th><th>Sisa Tunggakan</th></tr></thead><tbody>
+                    ${data.map(m => `<tr><td class="text-center">${m.bulan}-${filterTahun}</td><td class="text-center">${m.totalP}</td><td class="text-right">${formatRp(m.total)}</td><td class="text-right">${formatRp(m.lunas)}</td><td class="text-right">${formatRp(m.tunggak)}</td></tr>`).join('')}
+                    </tbody><tfoot><tr style="font-weight:bold;background:#eee;"><td colspan="2" class="text-center">TOTAL KESELURUHAN</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.total,0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.lunas,0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.tunggak,0))}</td></tr></tfoot></table>`;
             } else if (reportType === 'tunggakan_bulan') {
                 reportTitle = `Laporan Tunggakan Perbulan - ${formatBulanTahunLengkap(filterPeriode)}`;
-                const tags = tagihan.filter(t => t.periode === filterPeriode && t.status === 'Belum Terbayar');
-                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><p>Total Tunggakan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
-                    <table><thead><tr><th>No. Pel</th><th>Nama</th><th>Pemakaian (m3)</th><th>Total Tunggakan</th></tr></thead><tbody>
-                    ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-center">${t.meterAkhir-t.meterAwal}</td><td class="text-right">${formatRp(t.total)}</td></tr>`).join('')}
-                    ${tags.length===0?'<tr><td colspan="4" class="text-center">Tidak ada tunggakan</td></tr>':''}</tbody></table>`;
+                const tags = tagihan.filter(t => t.periode === filterPeriode && getSisa(t) > 0);
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><p>Total Sisa Tunggakan Bulan Ini: <strong style="color:red">${formatRp(tags.reduce((s,t)=>s+getSisa(t),0))}</strong></p>
+                    <table><thead><tr><th>No</th><th>Nama</th><th>Total Tagihan</th><th>Sudah Dibayar</th><th>Sisa Tunggakan</th></tr></thead><tbody>
+                    ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right font-bold" style="color:red">${formatRp(getSisa(t))}</td></tr>`).join('')}
+                    ${tags.length===0?'<tr><td colspan="5" class="text-center">Aman, tidak ada tunggakan</td></tr>':''}</tbody></table>`;
             } else {
                 reportTitle = `Laporan Tunggakan Pertahun - ${filterTahun}`;
-                const tags = tagihan.filter(t => t.periode.startsWith(filterTahun) && t.status === 'Belum Terbayar');
-                const grouped = tags.reduce((acc, t) => { if(!acc[t.idPelanggan]) acc[t.idPelanggan]={t:0,b:[]}; acc[t.idPelanggan].t+=t.total; acc[t.idPelanggan].b.push(t.periode.split('-')[1]); return acc; }, {});
-                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><p>Total Seluruh Tunggakan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
-                    <table><thead><tr><th>No. Pel</th><th>Nama</th><th>Bulan Menunggak</th><th>Total Tunggakan</th></tr></thead><tbody>
-                    ${Object.keys(grouped).map(id => `<tr><td>${getNo(id)}</td><td>${getName(id)}</td><td>${grouped[id].b.join(', ')}</td><td class="text-right font-bold">${formatRp(grouped[id].t)}</td></tr>`).join('')}
-                    ${Object.keys(grouped).length===0?'<tr><td colspan="4" class="text-center">Aman, tidak ada tunggakan tahun ini</td></tr>':''}</tbody></table>`;
+                const tags = tagihan.filter(t => t.periode.startsWith(filterTahun) && getSisa(t) > 0);
+                const grouped = tags.reduce((acc, t) => { if(!acc[t.idPelanggan]) acc[t.idPelanggan]={tot:0, bayar:0, sisa:0, b:[]}; acc[t.idPelanggan].tot+=t.total; acc[t.idPelanggan].bayar+=getTerbayar(t); acc[t.idPelanggan].sisa+=getSisa(t); acc[t.idPelanggan].b.push(t.periode.split('-')[1]); return acc; }, {});
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><p>Total Seluruh Tunggakan Tahun ${filterTahun}: <strong style="color:red">${formatRp(tags.reduce((s,t)=>s+getSisa(t),0))}</strong></p>
+                    <table><thead><tr><th>No</th><th>Nama</th><th>Bulan Menunggak</th><th>Total Tagihan</th><th>Dibayar</th><th>Sisa Tunggakan</th></tr></thead><tbody>
+                    ${Object.keys(grouped).map(id => `<tr><td>${getNo(id)}</td><td>${getName(id)}</td><td>${grouped[id].b.join(', ')}</td><td class="text-right">${formatRp(grouped[id].tot)}</td><td class="text-right">${formatRp(grouped[id].bayar)}</td><td class="text-right font-bold" style="color:red">${formatRp(grouped[id].sisa)}</td></tr>`).join('')}
+                    ${Object.keys(grouped).length===0?'<tr><td colspan="6" class="text-center">Aman, tidak ada tunggakan tahun ini</td></tr>':''}</tbody></table>`;
             }
 
             return (
