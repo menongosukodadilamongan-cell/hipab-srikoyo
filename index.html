@@ -77,6 +77,18 @@
             finally { document.body.removeChild(textArea); }
         };
 
+        // Bantuan Format Struk Thermal Bluetooth (Lebar 32 Karakter)
+        const alignCenter = (text) => {
+            const str = String(text);
+            return str.padStart(Math.floor((32 - str.length) / 2) + str.length).padEnd(32);
+        };
+        const alignLeftRight = (left, right) => {
+            const strLeft = String(left);
+            const strRight = String(right);
+            const spaces = 32 - strLeft.length - strRight.length;
+            return strLeft + ' '.repeat(Math.max(0, spaces)) + strRight;
+        };
+
         // Fungsi Cetak yang Dioptimalkan untuk HP & Printer Thermal (Web Print)
         const printContent = (htmlContent, mode) => {
             const iframe = document.createElement('iframe');
@@ -582,13 +594,30 @@
 
             // Solusi Cetak HP (Kirim Teks ke Aplikasi Printer via Share API)
             const cetakStrukHP = (p, t) => {
-                const text = `${settings.appName.toUpperCase()}\n--------------------------------\nNo. Pel : ${p.noPelanggan}\nNama    : ${p.nama}\nPeriode : ${formatBulanTahunSingkat(t.periode)}\n--------------------------------\nM. Awal : ${t.meterAwal}\nM. Akhir: ${t.meterAkhir}\nPakai   : ${t.meterAkhir - t.meterAwal} m3\n--------------------------------\nTOTAL   : ${formatRp(t.total)}\n--------------------------------\nStatus  : ${t.status === 'Terbayar' ? 'LUNAS' : 'BELUM LUNAS'}\n\nTerima Kasih\n\n`;
+                const text = 
+`${alignCenter(settings.appName.toUpperCase())}
+--------------------------------
+No  : ${p.noPelanggan}
+Nama: ${p.nama}
+Per : ${formatBulanTahunSingkat(t.periode)}
+--------------------------------
+${alignLeftRight('M. Awal', t.meterAwal)}
+${alignLeftRight('M. Akhir', t.meterAkhir)}
+${alignLeftRight('Pemakaian', (t.meterAkhir - t.meterAwal) + ' m3')}
+--------------------------------
+${alignLeftRight('TOTAL', formatRp(t.total))}
+--------------------------------
+${alignCenter(t.status === 'Terbayar' ? '*** LUNAS ***' : 'BELUM LUNAS')}
+
+${alignCenter('Terima Kasih')}
+
+`;
                 
                 if (navigator.share) {
                     navigator.share({ title: 'Struk Pembayaran', text: text })
-                    .catch(err => { copyToClipboard(text); showToast("Teks disalin! Buka aplikasi printer Anda dan Paste."); });
+                    .catch(err => { copyToClipboard(text); showToast("Teks disalin! Paste di aplikasi printer Anda."); });
                 } else {
-                    copyToClipboard(text); showToast("Teks disalin! Buka aplikasi printer Anda dan Paste.");
+                    copyToClipboard(text); showToast("Teks disalin! Paste di aplikasi printer Anda.");
                 }
             };
 
