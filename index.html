@@ -223,6 +223,9 @@
                 }} showToast={showToast} />;
             }
 
+            // KUNCI PERBAIKAN: Hanya menghitung tagihan yang pelanggannya masih ada di daftar pelanggan
+            const validTagihanData = tagihanData.filter(t => pelangganData.some(p => p.id === t.idPelanggan));
+
             return (
                 <div className="flex h-[100dvh] overflow-hidden">
                     {toastMessage && (
@@ -291,12 +294,13 @@
                             </div>
                         )}
 
-                        {/* Area Konten Utama (Tambahan padding bawah pb-32 agar bisa di-scroll sampai ujung di HP) */}
+                        {/* Area Konten Utama */}
                         <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8">
-                            {activeTab === 'dashboard' && <Dashboard pelanggan={pelangganData} tagihan={tagihanData} />}
+                            {/* Menggunakan validTagihanData agar tagihan dari pelanggan yang dihapus tidak ikut dihitung */}
+                            {activeTab === 'dashboard' && <Dashboard pelanggan={pelangganData} tagihan={validTagihanData} />}
                             {activeTab === 'pelanggan' && <PelangganManager data={pelangganData} showToast={showToast} />}
-                            {activeTab === 'tagihan' && <TagihanManager pelanggan={pelangganData} tagihan={tagihanData} settings={settings} showToast={showToast} />}
-                            {activeTab === 'pelaporan' && <Pelaporan pelanggan={pelangganData} tagihan={tagihanData} settings={settings} />}
+                            {activeTab === 'tagihan' && <TagihanManager pelanggan={pelangganData} tagihan={validTagihanData} settings={settings} showToast={showToast} />}
+                            {activeTab === 'pelaporan' && <Pelaporan pelanggan={pelangganData} tagihan={validTagihanData} settings={settings} />}
                             {activeTab === 'pengaturan' && <PengaturanManager settings={settings} adminUsers={adminUsers} showToast={showToast} />}
                         </main>
                     </div>
@@ -582,6 +586,17 @@
                 } catch(err) { alert(err.message); }
             };
 
+            // Menghapus Tagihan Spesifik
+            const hapusTagihan = async (id) => {
+                if(window.confirm('Hapus tagihan bulan ini secara permanen?')) {
+                    try {
+                        await DB_PUSAT.collection('tagihan').doc(id).delete();
+                        setModal(false);
+                        showToast('Tagihan Berhasil Dihapus');
+                    } catch(err) { alert(err.message); }
+                }
+            };
+
             const toggleStatus = async (t) => {
                 await DB_PUSAT.collection('tagihan').doc(t.id).update({ status: t.status === 'Terbayar' ? 'Belum Terbayar' : 'Terbayar' });
                 showToast(`Status Pembayaran Diubah`);
@@ -659,7 +674,6 @@ ${alignCenter('PENGURUS HIPAB SRIKOYO')}
 
             // Logika Universal untuk Tombol Print
             const handleCetak = (p, t) => {
-                // Deteksi jika dibuka dari HP
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
                 if (isMobile) {
                     cetakStrukHP(p, t);
@@ -727,9 +741,7 @@ ${alignCenter('PENGURUS HIPAB SRIKOYO')}
                                                 <td className="p-4">{t.meterAwal}</td><td className="p-4">{t.meterAkhir}</td><td className="p-4 font-bold">{formatRp(t.total)}</td>
                                                 <td className="p-4 text-center"><button onClick={()=>toggleStatus(t)} className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${t.status==='Terbayar'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{t.status}</button></td>
                                                 <td className="p-4 text-center space-x-2">
-                                                    {/* Tombol Print yang Cerdas (Bisa mendeteksi HP/PC) */}
                                                     <button onClick={()=>handleCetak(p,t)} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border" title="Cetak Struk"><i className="fas fa-print"></i></button>
-                                                    
                                                     <button onClick={()=>copyWA(p,t)} className="p-2 bg-green-50 hover:bg-green-100 text-green-600 rounded border border-green-200" title="Copy WA"><i className="fab fa-whatsapp"></i></button>
                                                     <button onClick={()=>openTagihan(p)} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded border border-blue-200" title="Edit"><i className="fas fa-edit"></i></button>
                                                 </td>
@@ -746,7 +758,7 @@ ${alignCenter('PENGURUS HIPAB SRIKOYO')}
                     {modal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
-                                <h3 className="font-bold text-lg mb-1 text-gray-800">Input Tagihan</h3>
+                                <h3 className="font-bold text-lg mb-1 text-gray-800">Input/Edit Tagihan</h3>
                                 <p className="text-sm text-gray-500 mb-4">{selP.nama} - {formatBulanTahunSingkat(periode)}</p>
                                 <div className="flex gap-3 mb-4">
                                     <div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Awal</label><input type="number" min="0" value={mAwal} onChange={e=>setMAwal(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
@@ -758,7 +770,12 @@ ${alignCenter('PENGURUS HIPAB SRIKOYO')}
                                     <div className="flex justify-between pb-2 border-b border-blue-200"><span>Beban Tetap:</span><span>{formatRp(settings.beban)}</span></div>
                                     <div className="flex justify-between font-bold text-blue-900 pt-1 text-lg"><span>Total:</span><span>{formatRp(totalHitung)}</span></div>
                                 </div>
-                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow">Simpan</button></div>
+                                <div className="flex justify-end gap-3 w-full">
+                                    {/* Tombol Khusus Hapus Tagihan */}
+                                    {existT && <button type="button" onClick={()=>hapusTagihan(existT.id)} className="mr-auto px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200" title="Hapus Tagihan Bulan Ini"><i className="fas fa-trash"></i></button>}
+                                    <button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button>
+                                    <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow">Simpan</button>
+                                </div>
                             </form>
                         </div>
                     )}
