@@ -104,6 +104,12 @@
             return 'BELUM';
         };
 
+        const getTunggakanLalu = (semuaTagihan, idPelanggan, currentPeriode) => {
+            return semuaTagihan
+                .filter(t => t.idPelanggan === idPelanggan && t.periode < currentPeriode)
+                .reduce((s, t) => s + getSisa(t), 0);
+        };
+
         // Bantuan Format Struk Thermal Bluetooth
         const alignCenter = (text) => {
             const str = String(text);
@@ -633,40 +639,54 @@
                 let uang = Number(payNominal);
                 if(uang < 0) return alert("Nominal tidak valid!");
                 
-                // Ambil semua tagihan belum lunas dari pelanggan ini, urutkan dari periode paling lama
-                const unpaid = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0).sort((a, b) => a.periode.localeCompare(b.periode));
-                
-                if(unpaid.length === 0) return alert("Pelanggan ini tidak memiliki tagihan/tunggakan untuk dibayar.");
-
                 try {
-                    for(let t of unpaid) {
-                        if(uang <= 0) break; // Uang habis
-                        const sisaT = getSisa(t);
-                        
-                        if(uang >= sisaT) {
-                            // Lunas tagihan ini
-                            await DB_PUSAT.collection('tagihan').doc(t.id).update({ terbayar: getTerbayar(t) + sisaT, status: 'Terbayar' });
-                            uang -= sisaT;
-                        } else {
-                            // Uang hanya cukup untuk nyicil sebagian di bulan ini
-                            await DB_PUSAT.collection('tagihan').doc(t.id).update({ terbayar: getTerbayar(t) + uang, status: 'Belum Terbayar' });
-                            uang = 0;
+                    // 1. Prioritaskan lunasi tagihan bulan yang sedang dibuka
+                    const currentTagihan = tagihan.find(t => t.idPelanggan === selP.id && t.periode === periode);
+                    if (currentTagihan && uang > 0) {
+                        const sisaCurrent = getSisa(currentTagihan);
+                        if (sisaCurrent > 0) {
+                            const bayarSini = Math.min(uang, sisaCurrent);
+                            await DB_PUSAT.collection('tagihan').doc(currentTagihan.id).update({
+                                terbayar: getTerbayar(currentTagihan) + bayarSini,
+                                status: (getTerbayar(currentTagihan) + bayarSini) >= currentTagihan.total ? 'Terbayar' : 'Belum Terbayar'
+                            });
+                            uang -= bayarSini;
                         }
                     }
+
+                    // 2. Jika ada sisa uang, lunasi tunggakan lama (dari yang terlama)
+                    if (uang > 0) {
+                        const unpaidLain = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0 && t.periode !== periode).sort((a,b)=>a.periode.localeCompare(b.periode));
+                        for(let t of unpaidLain) {
+                            if(uang <= 0) break;
+                            const sisaT = getSisa(t);
+                            const bayarSini = Math.min(uang, sisaT);
+                            await DB_PUSAT.collection('tagihan').doc(t.id).update({
+                                terbayar: getTerbayar(t) + bayarSini,
+                                status: (getTerbayar(t) + bayarSini) >= t.total ? 'Terbayar' : 'Belum Terbayar'
+                            });
+                            uang -= bayarSini;
+                        }
+                    }
+                    
                     setPayModal(false); setPayNominal(''); showToast('Pembayaran Berhasil Didistribusikan!');
                 } catch(err) { alert(err.message); }
             };
 
             const copyWA = (p, t) => {
+                const tunggakanLalu = getTunggakanLalu(tagihan, p.id, t.periode);
+                const totalHarusDibayar = t.total + tunggakanLalu;
                 const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
                 const isLunasSemua = totalHutang <= 0;
                 
-                const msg = `Yth. Bapak/Ibu ${p.nama},\n\nBersama pesan ini, kami sampaikan rincian tagihan air bersih ${settings.appName} untuk periode ${formatBulanTahunLengkap(t.periode)}.\n\n*Rincian Penggunaan:*\n- Meter Awal : ${t.meterAwal}\n- Meter Akhir: ${t.meterAkhir}\n- Pemakaian  : ${t.meterAkhir - t.meterAwal} m3\n\n*Tagihan Bulan Ini: ${formatRp(t.total)}*\n*SISA SELURUH TUNGGAKAN: ${formatRp(totalHutang)}*\n\nStatus: ${isLunasSemua ? 'LUNAS ✅' : 'BELUM TERBAYAR ❌'}\n\nDemikian informasi ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.\n\nHormat kami,\nPengelola ${settings.appName}`;
+                const msg = `Yth. Bapak/Ibu ${p.nama},\n\nBersama pesan ini, kami sampaikan rincian tagihan air bersih ${settings.appName} untuk periode ${formatBulanTahunLengkap(t.periode)}.\n\n*Rincian Penggunaan:*\n- Meter Awal : ${t.meterAwal}\n- Meter Akhir: ${t.meterAkhir}\n- Pemakaian  : ${t.meterAkhir - t.meterAwal} m3\n\n*Tagihan Bulan Ini : ${formatRp(t.total)}*\n*Tunggakan Lalu   : ${formatRp(tunggakanLalu)}*\n*Total Tagihan    : ${formatRp(totalHarusDibayar)}*\n\nStatus: ${isLunasSemua ? 'LUNAS ✅' : 'BELUM TERBAYAR ❌'}\n\nSisa Seluruh Tunggakan saat ini: ${formatRp(totalHutang)}\n\nDemikian informasi ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.\n\nHormat kami,\nPengelola ${settings.appName}`;
                 copyToClipboard(msg); showToast("Pesan WA Disalin!");
             };
 
             const cetakStrukPC = (p, t) => {
                 const pemakaian = t.meterAkhir - t.meterAwal;
+                const tunggakanLalu = getTunggakanLalu(tagihan, p.id, t.periode);
+                const totalHarusDibayar = t.total + tunggakanLalu;
                 const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
                 
                 const html = `
@@ -687,10 +707,15 @@
                     </table><hr />
                     <table>
                         <tr><td>TAGIHAN BLN INI</td><td class="text-right">${formatRp(t.total)}</td></tr>
-                        <tr class="bold" style="color:red; font-size:13px;"><td>TOTAL TUNGGAKAN</td><td class="text-right">${formatRp(totalHutang)}</td></tr>
+                        <tr><td>TUNGGAKAN LALU</td><td class="text-right">${formatRp(tunggakanLalu)}</td></tr>
+                        <tr class="bold"><td>TOTAL TAGIHAN</td><td class="text-right">${formatRp(totalHarusDibayar)}</td></tr>
+                    </table><hr />
+                    <table>
+                        <tr><td>DIBAYAR</td><td class="text-right">${formatRp(getTerbayar(t))}</td></tr>
+                        <tr class="bold" style="color:red; font-size:13px;"><td>SISA TOTAL HUTANG</td><td class="text-right">${formatRp(totalHutang)}</td></tr>
                     </table><hr />
                     <div class="text-center" style="margin-top:8px;">
-                        <div class="bold" style="font-size:16px;">${totalHutang <= 0 ? 'LUNAS' : 'BELUM LUNAS'}</div>
+                        <div class="bold" style="font-size:16px;">${totalHutang <= 0 ? 'LUNAS' : (getTerbayar(t) > 0 ? 'NYICIL' : 'BELUM LUNAS')}</div>
                         <div style="font-size:11px; margin-top: 4px;">TGL CETAK: ${getCurrentDate()}</div>
                         <div style="margin-top:12px; font-size:11px;">TERIMA KASIH</div>
                         <div style="margin-top:4px; font-size:11px;">HORMAT KAMI, PENGURUS</div>
@@ -699,6 +724,8 @@
             };
 
             const cetakStrukHP = (p, t) => {
+                const tunggakanLalu = getTunggakanLalu(tagihan, p.id, t.periode);
+                const totalHarusDibayar = t.total + tunggakanLalu;
                 const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
                 const text = 
 `${alignCenter(settings.appName.toUpperCase())}
@@ -713,9 +740,13 @@ ${alignLeftRight('M. AKHIR', t.meterAkhir)}
 ${alignLeftRight('PEMAKAIAN', (t.meterAkhir - t.meterAwal) + ' m3')}
 --------------------------------
 ${alignLeftRight('TAGIHAN BLN INI', formatRp(t.total))}
-${alignLeftRight('TOTAL TUNGGAKAN', formatRp(totalHutang))}
+${alignLeftRight('TUNGGAKAN LALU', formatRp(tunggakanLalu))}
+${alignLeftRight('TOTAL TAGIHAN', formatRp(totalHarusDibayar))}
 --------------------------------
-${alignCenter(totalHutang <= 0 ? '*** LUNAS ***' : 'BELUM LUNAS')}
+${alignLeftRight('DIBAYAR', formatRp(getTerbayar(t)))}
+${alignLeftRight('SISA TOTAL HTG', formatRp(totalHutang))}
+--------------------------------
+${alignCenter(totalHutang <= 0 ? '*** LUNAS ***' : (getTerbayar(t) > 0 ? '** NYICIL **' : 'BELUM LUNAS'))}
 TGL CETAK: ${getCurrentDate()}
 
 ${alignCenter('TERIMA KASIH')}
@@ -860,14 +891,18 @@ ${alignCenter('PENGURUS')}
                                 <p className="text-sm text-gray-500 mb-4">{selP.nama}</p>
                                 
                                 {(() => {
-                                    const unpaid = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0).sort((a,b)=>a.periode.localeCompare(b.periode));
-                                    const totalHutang = unpaid.reduce((s,t)=>s+getSisa(t), 0);
+                                    const currentTagihan = tagihan.find(t => t.idPelanggan === selP.id && t.periode === periode);
+                                    const sisaBulanIni = currentTagihan ? getSisa(currentTagihan) : 0;
+                                    const tunggakanLalu = getTunggakanLalu(tagihan, selP.id, periode);
+                                    const tunggakanDepan = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0 && t.periode > periode).reduce((s,t)=>s+getSisa(t), 0);
+                                    const totalHutang = sisaBulanIni + tunggakanLalu + tunggakanDepan;
                                     
                                     return (
                                         <>
-                                            <div className="bg-red-50 border border-red-200 p-4 rounded-lg mb-4 text-sm text-gray-700 space-y-1">
-                                                <div className="flex justify-between text-red-700"><span>Total Seluruh Tunggakan:</span><span className="font-bold text-lg">{formatRp(totalHutang)}</span></div>
-                                                {unpaid.length > 0 && <div className="text-xs text-red-500 mt-1 italic">*Tunggakan terlama: {formatBulanTahunSingkat(unpaid[0].periode)}</div>}
+                                            <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-4 text-sm text-gray-700 space-y-1">
+                                                <div className="flex justify-between"><span>Sisa Tagihan Bln Ini:</span><span>{formatRp(sisaBulanIni)}</span></div>
+                                                <div className="flex justify-between text-red-600"><span>Tunggakan Bln Lain:</span><span>{formatRp(tunggakanLalu + tunggakanDepan)}</span></div>
+                                                <div className="flex justify-between text-blue-900 border-t border-blue-200 pt-1 mt-1 font-bold text-lg"><span>Total Harus Dibayar:</span><span>{formatRp(totalHutang)}</span></div>
                                             </div>
                                             <div className="mb-6">
                                                 <label className="text-xs font-medium text-gray-600 block mb-1">Uang yang Diserahkan Warga (Rp)</label>
@@ -877,7 +912,7 @@ ${alignCenter('PENGURUS')}
                                                     <button type="button" onClick={()=>setPayNominal(totalHutang)} className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200 font-bold">Lunas Semua</button>
                                                 </div>
                                             </div>
-                                            <p className="text-[10px] text-gray-400 mb-4 text-center leading-tight">Sistem otomatis akan melunasi hutang dari bulan yang paling lama terlebih dahulu secara berurutan.</p>
+                                            <p className="text-[10px] text-gray-400 mb-4 text-center leading-tight">Uang akan diprioritaskan memotong tagihan <strong>bulan ini</strong> terlebih dahulu, sisanya akan melunasi tunggakan lain.</p>
                                         </>
                                     );
                                 })()}
@@ -997,11 +1032,12 @@ ${alignCenter('PENGURUS')}
                 
                 reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div>
                     <p>Total Tagihan Bulan Ini: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
-                    <p>Total Uang Masuk (Dibayar): <strong style="color:green">${formatRp(pemasukan)}</strong></p>
-                    <table><thead><tr><th>No</th><th>Nama</th><th>Tagihan Bln Ini</th><th>Dibayar</th><th>Sisa Bln Ini</th><th>Total Seluruh Tunggakan</th></tr></thead><tbody>
+                    <p>Total Uang Masuk (Dibayar Bulan Ini): <strong style="color:green">${formatRp(pemasukan)}</strong></p>
+                    <table><thead><tr><th>No</th><th>Nama</th><th>Tagihan Bln Ini</th><th>Tunggakan Lalu</th><th>Total Dibayar</th><th>Sisa Seluruh Tunggakan</th></tr></thead><tbody>
                     ${tags.map(t => {
+                        const tunggakanLalu = getTunggakanLalu(tagihan, t.idPelanggan, filterPeriode);
                         const totalHutang = tagihan.filter(x => x.idPelanggan === t.idPelanggan).reduce((s, x) => s + getSisa(x), 0);
-                        return `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right">${formatRp(getSisa(t))}</td><td class="text-right font-bold ${totalHutang>0?'color:red;':''}">${formatRp(totalHutang)}</td></tr>`;
+                        return `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(tunggakanLalu)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right font-bold ${totalHutang>0?'color:red;':''}">${formatRp(totalHutang)}</td></tr>`;
                     }).join('')}
                     ${tags.length===0?'<tr><td colspan="6" class="text-center">Tidak ada data</td></tr>':''}</tbody></table>`;
             } else if (reportType === 'tahunan') {
