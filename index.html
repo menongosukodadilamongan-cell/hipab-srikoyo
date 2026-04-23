@@ -242,7 +242,7 @@
                                 <LogoRenderer logo={settings.logo} className="text-3xl" />
                             </div>
                             <h1 className="text-lg font-bold tracking-wide text-center px-2 leading-tight">{settings.appName}</h1>
-                            {settings.appSubtitle && <p className="text-xs text-blue-300 text-center px-2 mt-1">{settings.appSubtitle}</p>}
+                            {settings.appSubtitle && <p className="text-sm font-medium text-blue-200 text-center px-2 mt-1">{settings.appSubtitle}</p>}
                         </div>
                         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
                             <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>setActiveTab('dashboard')} />
@@ -270,7 +270,7 @@
                                 </div>
                                 <div className="flex flex-col">
                                     <span className="truncate max-w-[180px] leading-tight">{settings.appName}</span>
-                                    {settings.appSubtitle && <span className="text-[10px] text-blue-300 truncate max-w-[180px] font-normal leading-tight">{settings.appSubtitle}</span>}
+                                    {settings.appSubtitle && <span className="text-xs text-blue-200 truncate max-w-[180px] font-medium leading-tight">{settings.appSubtitle}</span>}
                                 </div>
                             </div>
                             <div className="w-8"></div>
@@ -343,7 +343,7 @@
                                 <LogoRenderer logo={settings.logo} className="text-5xl" />
                             </div>
                             <h2 className="text-2xl font-bold text-gray-800 uppercase leading-tight">{settings.appName}</h2>
-                            {settings.appSubtitle ? <p className="text-sm text-blue-600 font-semibold mt-1">{settings.appSubtitle}</p> : <p className="text-sm text-gray-500 mt-1">Silakan masuk ke akun Anda</p>}
+                            {settings.appSubtitle ? <p className="text-base text-blue-600 font-bold mt-1">{settings.appSubtitle}</p> : <p className="text-sm text-gray-500 mt-1">Silakan masuk ke akun Anda</p>}
                         </div>
                         <div className="space-y-4">
                             <div>
@@ -419,6 +419,7 @@
             const [form, setForm] = useState({ no: '', nama: '', rt: '', rw: '', status: 'Aktif', hp: '' });
             const [search, setSearch] = useState('');
             const [filterStatus, setFilterStatus] = useState('Semua');
+            const [sortBy, setSortBy] = useState('noPelanggan');
 
             const openModal = (p = null) => {
                 if(p) { setEditId(p.id); setForm({ no: p.noPelanggan, nama: p.nama, rt: p.rt, rw: p.rw, status: p.status, hp: p.noHp }); }
@@ -478,7 +479,17 @@
 
             const filteredData = data
                 .filter(p => filterStatus === 'Semua' || p.status === filterStatus)
-                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.includes(search));
+                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
+                .sort((a, b) => {
+                    if (sortBy === 'noPelanggan') {
+                        return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
+                    } else if (sortBy === 'rtRw') {
+                        const rtRwA = `${a.rt}/${a.rw}`;
+                        const rtRwB = `${b.rt}/${b.rw}`;
+                        return rtRwA.localeCompare(rtRwB, undefined, {numeric: true, sensitivity: 'base'});
+                    }
+                    return 0;
+                });
 
             return (
                 <div className="space-y-4">
@@ -487,6 +498,9 @@
                         <div className="flex flex-wrap gap-2 w-full md:w-auto items-center">
                             <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
                                 <option value="Semua">Semua Status</option><option value="Aktif">Aktif</option><option value="Tidak Aktif">Tidak Aktif</option>
+                            </select>
+                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
+                                <option value="noPelanggan">Urut: No. Pelanggan</option><option value="rtRw">Urut: RT / RW</option>
                             </select>
                             <div className="relative flex-1 md:w-48">
                                 <i className="fas fa-search absolute left-3 top-3 text-gray-400 text-sm"></i>
@@ -554,6 +568,7 @@
             const [periode, setPeriode] = useState(new Date().toISOString().slice(0, 7));
             const [search, setSearch] = useState('');
             const [filterStatus, setFilterStatus] = useState('Semua');
+            const [sortBy, setSortBy] = useState('noPelanggan');
             const [modal, setModal] = useState(false); const [selP, setSelP] = useState(null);
             const [existT, setExistT] = useState(null);
             const [mAwal, setMAwal] = useState(''); const [mAkhir, setMAkhir] = useState('');
@@ -694,7 +709,17 @@ ${alignCenter('PENGURUS')}
                     if(filterStatus === 'Terbayar') return t && t.status === 'Terbayar';
                     if(filterStatus === 'Belum Terbayar') return !t || t.status === 'Belum Terbayar';
                 })
-                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.includes(search));
+                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
+                .sort((a, b) => {
+                    if (sortBy === 'noPelanggan') {
+                        return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
+                    } else if (sortBy === 'rtRw') {
+                        const rtRwA = `${a.rt}/${a.rw}`;
+                        const rtRwB = `${b.rt}/${b.rw}`;
+                        return rtRwA.localeCompare(rtRwB, undefined, {numeric: true, sensitivity: 'base'});
+                    }
+                    return 0;
+                });
 
             return (
                 <div className="space-y-4">
@@ -703,6 +728,9 @@ ${alignCenter('PENGURUS')}
                         <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
                             <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
                                 <option value="Semua">Semua Tagihan</option><option value="Belum Terbayar">Belum Lunas</option><option value="Terbayar">Lunas</option>
+                            </select>
+                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
+                                <option value="noPelanggan">Urut: No. Pelanggan</option><option value="rtRw">Urut: RT / RW</option>
                             </select>
                             <div className="flex items-center space-x-2 bg-white px-3 py-1.5 border rounded-lg shadow-sm">
                                 <span className="text-sm text-gray-600">Periode:</span>
