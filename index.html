@@ -163,7 +163,8 @@
             const [tagihanData, setTagihanData] = useState([]);
             const [adminUsers, setAdminUsers] = useState([]);
             const [settings, setSettings] = useState({
-                appName: 'HIPAB SRIKOYO',
+                appName: 'BUMDES SRIKOYO',
+                appSubtitle: 'UNIT HIPAB',
                 tarif: 1500,
                 beban: 2000,
                 logo: ''
@@ -240,7 +241,8 @@
                             <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-3 overflow-hidden p-2 text-blue-600">
                                 <LogoRenderer logo={settings.logo} className="text-3xl" />
                             </div>
-                            <h1 className="text-lg font-bold tracking-wide text-center px-2">{settings.appName}</h1>
+                            <h1 className="text-lg font-bold tracking-wide text-center px-2 leading-tight">{settings.appName}</h1>
+                            {settings.appSubtitle && <p className="text-xs text-blue-300 text-center px-2 mt-1">{settings.appSubtitle}</p>}
                         </div>
                         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
                             <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>setActiveTab('dashboard')} />
@@ -266,7 +268,10 @@
                                 <div className="w-6 h-6 mr-2 flex items-center justify-center text-blue-300">
                                     <LogoRenderer logo={settings.logo} className="text-lg" />
                                 </div>
-                                <span className="truncate max-w-[180px]">{settings.appName}</span>
+                                <div className="flex flex-col">
+                                    <span className="truncate max-w-[180px] leading-tight">{settings.appName}</span>
+                                    {settings.appSubtitle && <span className="text-[10px] text-blue-300 truncate max-w-[180px] font-normal leading-tight">{settings.appSubtitle}</span>}
+                                </div>
                             </div>
                             <div className="w-8"></div>
                         </header>
@@ -337,8 +342,8 @@
                             <div className="bg-blue-100 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4 overflow-hidden p-3 text-blue-600">
                                 <LogoRenderer logo={settings.logo} className="text-5xl" />
                             </div>
-                            <h2 className="text-2xl font-bold text-gray-800 uppercase">{settings.appName}</h2>
-                            <p className="text-sm text-gray-500 mt-1">Silakan masuk ke akun Anda</p>
+                            <h2 className="text-2xl font-bold text-gray-800 uppercase leading-tight">{settings.appName}</h2>
+                            {settings.appSubtitle ? <p className="text-sm text-blue-600 font-semibold mt-1">{settings.appSubtitle}</p> : <p className="text-sm text-gray-500 mt-1">Silakan masuk ke akun Anda</p>}
                         </div>
                         <div className="space-y-4">
                             <div>
@@ -612,8 +617,8 @@
                 const pemakaian = t.meterAkhir - t.meterAwal;
                 const html = `
                     <div class="text-center">
-                        <div class="title" style="font-size: 14px;">BUMDES SRIKOYO</div>
-                        <div class="bold" style="font-size: 14px;">UNIT HIPAB SRIKOYO</div>
+                        <div class="title" style="font-size: 14px;">${settings.appName}</div>
+                        ${settings.appSubtitle ? `<div class="bold" style="font-size: 14px;">${settings.appSubtitle}</div>` : ''}
                         <div style="font-size: 10px;">DESA MENONGO-SUKODADI-LAMONGAN</div>
                     </div><hr />
                     <table style="margin-bottom: 5px;">
@@ -633,7 +638,7 @@
                         <div class="bold" style="font-size:16px;">${t.status === 'Terbayar' ? 'LUNAS' : 'BELUM LUNAS'}</div>
                         <div style="font-size:11px; margin-top: 4px;">TGL BAYAR: ${getCurrentDate()}</div>
                         <div style="margin-top:12px; font-size:11px;">TERIMA KASIH</div>
-                        <div style="margin-top:4px; font-size:11px;">HORMAT KAMI, PENGURUS HIPAB SRIKOYO</div>
+                        <div style="margin-top:4px; font-size:11px;">HORMAT KAMI, PENGURUS</div>
                     </div>`;
                 printContent(html, 'receipt');
             };
@@ -641,9 +646,8 @@
             // Format Cetak HP (Thermal Teks 32 Karakter)
             const cetakStrukHP = (p, t) => {
                 const text = 
-`${alignCenter('BUMDES SRIKOYO')}
-${alignCenter('UNIT HIPAB SRIKOYO')}
-${alignCenter('DESA MENONGO-SUKODADI-LAMONGAN')}
+`${alignCenter(settings.appName.toUpperCase())}
+${settings.appSubtitle ? alignCenter(settings.appSubtitle.toUpperCase()) + '\n' : ''}${alignCenter('DESA MENONGO-SUKODADI-LAMONGAN')}
 --------------------------------
 NO     : ${p.noPelanggan}
 NAMA   : ${p.nama}
@@ -660,7 +664,7 @@ TGL BAYAR: ${getCurrentDate()}
 
 ${alignCenter('TERIMA KASIH')}
 ${alignCenter('HORMAT KAMI,')}
-${alignCenter('PENGURUS HIPAB SRIKOYO')}
+${alignCenter('PENGURUS')}
 
 `;
                 
@@ -803,8 +807,11 @@ ${alignCenter('PENGURUS HIPAB SRIKOYO')}
                 e.preventDefault();
                 try {
                     await DB_PUSAT.collection('pengaturan').doc('konfigurasi').set({
-                        appName: formSettings.appName, tarif: Number(formSettings.tarif),
-                        beban: Number(formSettings.beban), logo: formSettings.logo
+                        appName: formSettings.appName,
+                        appSubtitle: formSettings.appSubtitle || '',
+                        tarif: Number(formSettings.tarif),
+                        beban: Number(formSettings.beban),
+                        logo: formSettings.logo
                     });
                     showToast("Pengaturan Aplikasi Berhasil Disimpan!");
                 } catch(err) { alert(err.message); }
@@ -831,8 +838,9 @@ ${alignCenter('PENGURUS HIPAB SRIKOYO')}
                     <form onSubmit={simpanPengaturan} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                         <h3 className="text-lg font-bold text-gray-700 mb-4"><i className="fas fa-sliders-h mr-2"></i> Identitas & Tarif</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Aplikasi</label><input type="text" value={formSettings.appName} onChange={e=>setFormSettings({...formSettings, appName:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/></div>
-                            <div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Aplikasi Utama</label><input type="text" value={formSettings.appName} onChange={e=>setFormSettings({...formSettings, appName:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Keterangan (Sub-judul / Unit)</label><input type="text" value={formSettings.appSubtitle || ''} onChange={e=>setFormSettings({...formSettings, appSubtitle:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="Contoh: UNIT HIPAB"/></div>
+                            <div className="md:col-span-2">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Ubah Logo (Opsional)</label>
                                 <div className="flex items-center gap-3">
                                     <div className="w-12 h-12 bg-gray-100 border rounded flex items-center justify-center overflow-hidden"><LogoRenderer logo={formSettings.logo} className="text-xl text-gray-400" /></div>
@@ -884,7 +892,7 @@ ${alignCenter('PENGURUS HIPAB SRIKOYO')}
                 const tags = tagihan.filter(t => t.periode === filterPeriode);
                 const terbayar = tags.filter(t => t.status === 'Terbayar');
                 const belum = tags.filter(t => t.status === 'Belum Terbayar');
-                reportHtml = `<div class="header"><h2>${settings.appName}</h2><h3>${reportTitle}</h3></div>
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div>
                     <p>Total Pemasukan (Lunas): <strong>${formatRp(terbayar.reduce((s,t)=>s+t.total,0))}</strong> (${terbayar.length} Pelanggan)</p>
                     <p>Total Tunggakan: <strong>${formatRp(belum.reduce((s,t)=>s+t.total,0))}</strong> (${belum.length} Pelanggan)</p>
                     <table><thead><tr><th>No. Pel</th><th>Nama</th><th>M.Awal</th><th>M.Akhir</th><th>Total Tagihan</th><th>Status</th></tr></thead><tbody>
@@ -897,13 +905,13 @@ ${alignCenter('PENGURUS HIPAB SRIKOYO')}
                     const tags = tagihan.filter(t => t.periode === `${filterTahun}-${m}`);
                     return { bulan: m, lunas: tags.filter(t=>t.status==='Terbayar').reduce((s,t)=>s+t.total,0), tunggak: tags.filter(t=>t.status==='Belum Terbayar').reduce((s,t)=>s+t.total,0), totalP: tags.length };
                 });
-                reportHtml = `<div class="header"><h2>${settings.appName}</h2><h3>${reportTitle}</h3></div><table><thead><tr><th>Bulan</th><th>Ditagih (Orang)</th><th>Pemasukan Lunas</th><th>Sisa Tunggakan</th></tr></thead><tbody>
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><table><thead><tr><th>Bulan</th><th>Ditagih (Orang)</th><th>Pemasukan Lunas</th><th>Sisa Tunggakan</th></tr></thead><tbody>
                     ${data.map(m => `<tr><td class="text-center">${m.bulan}-${filterTahun}</td><td class="text-center">${m.totalP}</td><td class="text-right">${formatRp(m.lunas)}</td><td class="text-right">${formatRp(m.tunggak)}</td></tr>`).join('')}
                     </tbody><tfoot><tr style="font-weight:bold;background:#eee;"><td colspan="2" class="text-center">TOTAL KESELURUHAN</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.lunas,0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.tunggak,0))}</td></tr></tfoot></table>`;
             } else if (reportType === 'tunggakan_bulan') {
                 reportTitle = `Laporan Tunggakan Perbulan - ${formatBulanTahunLengkap(filterPeriode)}`;
                 const tags = tagihan.filter(t => t.periode === filterPeriode && t.status === 'Belum Terbayar');
-                reportHtml = `<div class="header"><h2>${settings.appName}</h2><h3>${reportTitle}</h3></div><p>Total Tunggakan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><p>Total Tunggakan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
                     <table><thead><tr><th>No. Pel</th><th>Nama</th><th>Pemakaian (m3)</th><th>Total Tunggakan</th></tr></thead><tbody>
                     ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-center">${t.meterAkhir-t.meterAwal}</td><td class="text-right">${formatRp(t.total)}</td></tr>`).join('')}
                     ${tags.length===0?'<tr><td colspan="4" class="text-center">Tidak ada tunggakan</td></tr>':''}</tbody></table>`;
@@ -911,7 +919,7 @@ ${alignCenter('PENGURUS HIPAB SRIKOYO')}
                 reportTitle = `Laporan Tunggakan Pertahun - ${filterTahun}`;
                 const tags = tagihan.filter(t => t.periode.startsWith(filterTahun) && t.status === 'Belum Terbayar');
                 const grouped = tags.reduce((acc, t) => { if(!acc[t.idPelanggan]) acc[t.idPelanggan]={t:0,b:[]}; acc[t.idPelanggan].t+=t.total; acc[t.idPelanggan].b.push(t.periode.split('-')[1]); return acc; }, {});
-                reportHtml = `<div class="header"><h2>${settings.appName}</h2><h3>${reportTitle}</h3></div><p>Total Seluruh Tunggakan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><p>Total Seluruh Tunggakan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
                     <table><thead><tr><th>No. Pel</th><th>Nama</th><th>Bulan Menunggak</th><th>Total Tunggakan</th></tr></thead><tbody>
                     ${Object.keys(grouped).map(id => `<tr><td>${getNo(id)}</td><td>${getName(id)}</td><td>${grouped[id].b.join(', ')}</td><td class="text-right font-bold">${formatRp(grouped[id].t)}</td></tr>`).join('')}
                     ${Object.keys(grouped).length===0?'<tr><td colspan="4" class="text-center">Aman, tidak ada tunggakan tahun ini</td></tr>':''}</tbody></table>`;
