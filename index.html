@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aplikasi HIPAB SRIKOYO</title>
+    <title>Aplikasi Air Bersih</title>
     
     <!-- Import Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -28,7 +28,7 @@
 
     <script type="text/babel">
         // ==========================================
-        // 🛑 KONFIGURASI FIREBASE ANDA 🛑
+        // 🛑 KONFIGURASI FIREBASE 🛑
         // ==========================================
         const firebaseConfig = {
             apiKey: "AIzaSyCGxO7B7PMPv3YhSNVcm-CpWUcxVPIA4bM",
@@ -46,7 +46,7 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // 🌟 KUNCI SINKRONISASI HP & PC: Gunakan 1 jalur utama untuk semua
+        // Jalur Sinkronisasi Data Utama
         const DB_PUSAT = db.collection('srikoyo_database').doc('main_data');
 
         const { useState, useEffect, useRef } = React;
@@ -54,6 +54,20 @@
         // --- FUNGSI BANTUAN (UTILITY) ---
         const formatRp = (number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0);
         
+        const formatBulanTahunSingkat = (isoString) => {
+            if(!isoString) return '';
+            const [y, m] = isoString.split('-');
+            const months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
+            return `${months[parseInt(m)-1]} ${y.slice(2)}`;
+        };
+
+        const formatBulanTahunLengkap = (isoString) => {
+            if(!isoString) return '';
+            const [y, m] = isoString.split('-');
+            const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+            return `${months[parseInt(m)-1]} ${y}`;
+        };
+
         const copyToClipboard = (text) => {
             const textArea = document.createElement("textarea");
             textArea.value = text; document.body.appendChild(textArea);
@@ -63,20 +77,29 @@
             finally { document.body.removeChild(textArea); }
         };
 
+        // Fungsi Cetak yang Dioptimalkan untuk HP & Printer Thermal
         const printContent = (htmlContent, mode) => {
             const iframe = document.createElement('iframe');
-            iframe.style.display = 'none'; document.body.appendChild(iframe);
-            const doc = iframe.contentWindow.document; doc.open();
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            document.body.appendChild(iframe);
+            
+            const doc = iframe.contentWindow.document;
             let style = `<style>body { font-family: 'Segoe UI', Tahoma, sans-serif; color: #000; }</style>`;
             
             if (mode === 'receipt') {
                 style += `<style>
-                    @page { size: 58mm auto; margin: 2mm; } 
-                    body { width: 54mm; font-size: 11px; margin:0; padding:0; line-height: 1.3; } 
+                    @page { size: 58mm auto; margin: 0; } 
+                    body { width: 54mm; font-size: 12px; margin: 2mm; padding:0; line-height: 1.4; } 
                     hr { border: 0.5px dashed #000; margin: 6px 0; }
                     .text-center { text-align: center; } .text-right { text-align: right; } .bold { font-weight: bold; }
-                    .title { font-size: 14px; font-weight: bold; margin-bottom: 2px;}
-                    table { width: 100%; font-size: 11px; }
+                    .title { font-size: 16px; font-weight: bold; margin-bottom: 2px; text-transform: uppercase; }
+                    table { width: 100%; font-size: 12px; }
+                    td { padding: 2px 0; }
                 </style>`;
             } else {
                 style += `<style>
@@ -86,22 +109,36 @@
                     th { background-color: #f3f4f6; text-align: center; }
                     .text-center { text-align: center; } .text-right { text-align: right; }
                     h2, h3 { margin: 0 0 5px 0; }
-                    .header { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; text-align: center; }
+                    .header { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; text-align: center; text-transform: uppercase; }
                 </style>`;
             }
-            doc.write(`<html><head>${style}</head><body>${htmlContent}</body></html>`);
+            
+            doc.open();
+            doc.write(`<html><head><title>Cetak Dokumen</title>${style}</head><body>${htmlContent}</body></html>`);
             doc.close();
-            setTimeout(() => {
-                iframe.contentWindow.focus(); iframe.contentWindow.print();
-                setTimeout(() => document.body.removeChild(iframe), 1000);
-            }, 500);
+
+            // Beri jeda loading di iframe agar browser HP merespon sempurna
+            iframe.onload = function() {
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+                setTimeout(() => document.body.removeChild(iframe), 2000);
+            };
+        };
+
+        const LogoRenderer = ({ logo, className }) => {
+            if(logo && logo.startsWith('data:image')) {
+                return <img src={logo} className={className} alt="Logo" style={{objectFit:'contain', width: '100%', height: '100%'}} />;
+            }
+            return <i className={`fas fa-tint ${className}`}></i>;
         };
 
         // ==========================================
         // KOMPONEN UTAMA APLIKASI
         // ==========================================
         function App() {
-            // Mencegah logout saat refresh dengan localStorage
+            // Variabel state untuk memastikan Firebase Auth sudah selesai
+            const [firebaseUser, setFirebaseUser] = useState(null);
+            
             const [isUiLoggedIn, setIsUiLoggedIn] = useState(localStorage.getItem('hipab_logged_in') === 'true');
             const [activeTab, setActiveTab] = useState('dashboard');
             const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -109,45 +146,88 @@
             
             const [pelangganData, setPelangganData] = useState([]);
             const [tagihanData, setTagihanData] = useState([]);
+            const [adminUsers, setAdminUsers] = useState([]);
+            const [settings, setSettings] = useState({
+                appName: 'HIPAB SRIKOYO',
+                tarif: 1500,
+                beban: 2000,
+                logo: ''
+            });
 
-            useEffect(() => {
-                auth.signInAnonymously().catch(err => console.error("Auth Error", err));
+            // Proses Auth Anonim di Awal
+            useEffect(() => { 
+                const initAuth = async () => {
+                    try {
+                        await auth.signInAnonymously();
+                    } catch (err) {
+                        console.error("Auth Error", err);
+                    }
+                };
+                initAuth();
+                
+                const unsubscribe = auth.onAuthStateChanged(user => {
+                    setFirebaseUser(user);
+                });
+                
+                return () => unsubscribe();
             }, []);
 
-            // Mengambil Data dari Firebase secara Realtime
+            // Ambil Data Utama Realtime (Tunggu firebaseUser valid)
             useEffect(() => {
-                if (!isUiLoggedIn) return;
+                // Jangan lakukan apapun jika Firebase belum selesai login anonim
+                if (!firebaseUser) return;
+
+                // Konfigurasi & Admin Users
+                const unsubConfig = DB_PUSAT.collection('pengaturan').doc('konfigurasi').onSnapshot(doc => {
+                    if(doc.exists) setSettings(doc.data());
+                    else DB_PUSAT.collection('pengaturan').doc('konfigurasi').set(settings); // set default
+                }, err => console.error("Error Config:", err));
+
+                const unsubUsers = DB_PUSAT.collection('pengaturan').doc('users').onSnapshot(doc => {
+                    if(doc.exists) setAdminUsers(doc.data().list || []);
+                    else {
+                        const defaultUsers = [{ id: Date.now().toString(), username: 'admin', password: 'admin123' }];
+                        DB_PUSAT.collection('pengaturan').doc('users').set({ list: defaultUsers });
+                        setAdminUsers(defaultUsers);
+                    }
+                }, err => console.error("Error Users:", err));
+
+                // Jika UI belum login, jangan load data pelanggan & tagihan untuk menghemat bandwidth
+                if (!isUiLoggedIn) return () => { unsubConfig(); unsubUsers(); };
 
                 const unsubP = DB_PUSAT.collection('pelanggan').onSnapshot(snap => {
                     setPelangganData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                });
+                }, err => console.error("Error Pelanggan:", err));
                 
                 const unsubT = DB_PUSAT.collection('tagihan').onSnapshot(snap => {
                     setTagihanData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                });
+                }, err => console.error("Error Tagihan:", err));
 
-                return () => { unsubP(); unsubT(); };
-            }, [isUiLoggedIn]);
+                return () => { unsubP(); unsubT(); unsubConfig(); unsubUsers(); };
+            }, [isUiLoggedIn, firebaseUser]);
 
-            const showToast = (msg) => {
-                setToastMessage(msg); setTimeout(() => setToastMessage(null), 3000);
-            };
+            const showToast = (msg) => { setToastMessage(msg); setTimeout(() => setToastMessage(null), 3000); };
+            const handleLogout = () => { localStorage.removeItem('hipab_logged_in'); setIsUiLoggedIn(false); };
 
-            const handleLogout = () => {
-                localStorage.removeItem('hipab_logged_in');
-                setIsUiLoggedIn(false);
-            };
+            // Layar Tunggu Firebase
+            if (!firebaseUser) {
+                return (
+                    <div className="flex h-screen items-center justify-center bg-blue-900 text-white flex-col">
+                        <i className="fas fa-circle-notch fa-spin text-5xl mb-4"></i>
+                        <h2 className="text-xl font-bold">Menghubungkan ke Database...</h2>
+                        <p className="text-blue-300 mt-2 text-sm">Mohon tunggu sebentar</p>
+                    </div>
+                );
+            }
 
             if (!isUiLoggedIn) {
-                return <LoginScreen onLogin={() => {
-                    localStorage.setItem('hipab_logged_in', 'true');
-                    setIsUiLoggedIn(true);
+                return <LoginScreen users={adminUsers} settings={settings} onLogin={() => {
+                    localStorage.setItem('hipab_logged_in', 'true'); setIsUiLoggedIn(true);
                 }} showToast={showToast} />;
             }
 
             return (
                 <div className="flex h-screen overflow-hidden">
-                    {/* Pesan Notifikasi */}
                     {toastMessage && (
                         <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-5 py-3 rounded-lg shadow-lg flex items-center animate-bounce">
                             <i className="fas fa-check-circle mr-2"></i> {toastMessage}
@@ -156,15 +236,18 @@
 
                     {/* Sidebar PC */}
                     <aside className="hidden md:flex flex-col w-64 bg-blue-900 text-white h-full shadow-xl z-20 relative">
-                        <div className="flex items-center justify-center h-20 border-b border-blue-800">
-                            <i className="fas fa-tint text-2xl text-blue-300 mr-2"></i>
-                            <h1 className="text-xl font-bold tracking-wide">HIPAB SRIKOYO</h1>
+                        <div className="flex flex-col items-center justify-center py-6 border-b border-blue-800">
+                            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-3 overflow-hidden p-2 text-blue-600">
+                                <LogoRenderer logo={settings.logo} className="text-3xl" />
+                            </div>
+                            <h1 className="text-lg font-bold tracking-wide text-center px-2">{settings.appName}</h1>
                         </div>
                         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
                             <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>setActiveTab('dashboard')} />
                             <NavItem icon="fa-users" label="Pelanggan" active={activeTab==='pelanggan'} onClick={()=>setActiveTab('pelanggan')} />
                             <NavItem icon="fa-file-invoice-dollar" label="Tagihan" active={activeTab==='tagihan'} onClick={()=>setActiveTab('tagihan')} />
                             <NavItem icon="fa-chart-pie" label="Pelaporan" active={activeTab==='pelaporan'} onClick={()=>setActiveTab('pelaporan')} />
+                            <NavItem icon="fa-cog" label="Pengaturan" active={activeTab==='pengaturan'} onClick={()=>setActiveTab('pengaturan')} />
                         </nav>
                         <div className="p-4 border-t border-blue-800">
                             <button onClick={handleLogout} className="flex items-center justify-center w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors">
@@ -173,25 +256,26 @@
                         </div>
                     </aside>
 
-                    {/* Header Mobile & Sidebar Mobile Kiri */}
+                    {/* Header Mobile & Sidebar Mobile */}
                     <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50 relative">
                         <header className="md:hidden flex items-center justify-between bg-blue-900 text-white p-4 shadow-md z-10">
                             <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 bg-blue-800 rounded">
                                 <i className="fas fa-bars text-xl"></i>
                             </button>
-                            <div className="flex items-center">
-                                <i className="fas fa-tint text-blue-300 mr-2"></i>
-                                <h1 className="text-lg font-bold">HIPAB SRIKOYO</h1>
+                            <div className="flex items-center font-bold">
+                                <div className="w-6 h-6 mr-2 flex items-center justify-center text-blue-300">
+                                    <LogoRenderer logo={settings.logo} className="text-lg" />
+                                </div>
+                                <span className="truncate max-w-[180px]">{settings.appName}</span>
                             </div>
-                            <div className="w-8"></div> {/* Spacer */}
+                            <div className="w-8"></div>
                         </header>
 
-                        {/* Slide-in Mobile Sidebar (Muncul dari Kiri) */}
                         {isMobileMenuOpen && (
                             <div className="md:hidden fixed inset-0 z-50 flex">
                                 <div className="bg-blue-900 w-64 h-full shadow-2xl flex flex-col transform transition-transform duration-300">
                                     <div className="flex items-center justify-between p-4 border-b border-blue-800 text-white">
-                                        <h2 className="font-bold text-lg">Menu</h2>
+                                        <h2 className="font-bold text-lg">Menu Utama</h2>
                                         <button onClick={() => setIsMobileMenuOpen(false)} className="p-2"><i className="fas fa-times text-xl"></i></button>
                                     </div>
                                     <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
@@ -199,6 +283,7 @@
                                         <NavItem icon="fa-users" label="Pelanggan" active={activeTab==='pelanggan'} onClick={()=>{setActiveTab('pelanggan'); setIsMobileMenuOpen(false);}} />
                                         <NavItem icon="fa-file-invoice-dollar" label="Tagihan" active={activeTab==='tagihan'} onClick={()=>{setActiveTab('tagihan'); setIsMobileMenuOpen(false);}} />
                                         <NavItem icon="fa-chart-pie" label="Pelaporan" active={activeTab==='pelaporan'} onClick={()=>{setActiveTab('pelaporan'); setIsMobileMenuOpen(false);}} />
+                                        <NavItem icon="fa-cog" label="Pengaturan" active={activeTab==='pengaturan'} onClick={()=>{setActiveTab('pengaturan'); setIsMobileMenuOpen(false);}} />
                                     </nav>
                                     <div className="p-4 border-t border-blue-800">
                                         <button onClick={handleLogout} className="flex items-center justify-center w-full px-4 py-3 bg-red-600 text-white rounded"><i className="fas fa-sign-out-alt mr-2"></i> Keluar</button>
@@ -212,8 +297,9 @@
                         <main className="flex-1 overflow-y-auto p-4 md:p-8">
                             {activeTab === 'dashboard' && <Dashboard pelanggan={pelangganData} tagihan={tagihanData} />}
                             {activeTab === 'pelanggan' && <PelangganManager data={pelangganData} showToast={showToast} />}
-                            {activeTab === 'tagihan' && <TagihanManager pelanggan={pelangganData} tagihan={tagihanData} showToast={showToast} />}
-                            {activeTab === 'pelaporan' && <Pelaporan pelanggan={pelangganData} tagihan={tagihanData} />}
+                            {activeTab === 'tagihan' && <TagihanManager pelanggan={pelangganData} tagihan={tagihanData} settings={settings} showToast={showToast} />}
+                            {activeTab === 'pelaporan' && <Pelaporan pelanggan={pelangganData} tagihan={tagihanData} settings={settings} />}
+                            {activeTab === 'pengaturan' && <PengaturanManager settings={settings} adminUsers={adminUsers} showToast={showToast} />}
                         </main>
                     </div>
                 </div>
@@ -231,31 +317,36 @@
         // ==========================================
         // LAYAR LOGIN
         // ==========================================
-        function LoginScreen({ onLogin, showToast }) {
+        function LoginScreen({ users, settings, onLogin, showToast }) {
             const [user, setUser] = useState(''); const [pass, setPass] = useState('');
             const handleLogin = (e) => { 
                 e.preventDefault(); 
-                if(user==='admin' && pass==='admin123') { onLogin(); showToast('Selamat Datang!'); } 
-                else alert('Username/Password Salah! (Gunakan: admin / admin123)'); 
+                // Default fallback incase users list is empty
+                if(users.length === 0 && user === 'admin' && pass === 'admin123') {
+                    onLogin(); showToast('Selamat Datang!'); return;
+                }
+                const validUser = users.find(u => u.username === user && u.password === pass);
+                if(validUser) { onLogin(); showToast('Selamat Datang!'); } 
+                else alert('Username atau Password Salah!'); 
             };
             return (
                 <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-blue-600 px-4">
                     <form onSubmit={handleLogin} className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md transform transition-all">
                         <div className="text-center mb-8">
-                            <div className="bg-blue-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i className="fas fa-tint text-4xl text-blue-600"></i>
+                            <div className="bg-blue-100 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4 overflow-hidden p-3 text-blue-600">
+                                <LogoRenderer logo={settings.logo} className="text-5xl" />
                             </div>
-                            <h2 className="text-2xl font-bold text-gray-800">HIPAB SRIKOYO</h2>
-                            <p className="text-sm text-gray-500 mt-1">Sistem Pengelolaan Air Bersih</p>
+                            <h2 className="text-2xl font-bold text-gray-800 uppercase">{settings.appName}</h2>
+                            <p className="text-sm text-gray-500 mt-1">Silakan masuk ke akun Anda</p>
                         </div>
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                                <input type="text" placeholder="Masukkan admin" value={user} onChange={e=>setUser(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required/>
+                                <input type="text" value={user} onChange={e=>setUser(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required/>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                                <input type="password" placeholder="Masukkan admin123" value={pass} onChange={e=>setPass(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required/>
+                                <input type="password" value={pass} onChange={e=>setPass(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required/>
                             </div>
                         </div>
                         <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold mt-8 shadow-lg transition-colors"><i className="fas fa-sign-in-alt mr-2"></i> Masuk Aplikasi</button>
@@ -276,14 +367,13 @@
             const tunggakan = tagihanBulanIni.filter(t => t.status === 'Belum Terbayar').reduce((s, t) => s + t.total, 0);
             const totalTunggakan = tagihan.filter(t => t.status === 'Belum Terbayar').reduce((s, t) => s + t.total, 0);
 
-            // Data Grafik 6 Bulan Terakhir
             const last6Months = Array.from({length: 6}, (_, i) => {
                 const d = new Date(); d.setMonth(d.getMonth() - i);
                 return d.toISOString().slice(0, 7);
             }).reverse();
 
             const chartData = last6Months.map(month => ({
-                label: month,
+                label: formatBulanTahunSingkat(month), // Label jadi singkat di HP
                 value: tagihan.filter(t => t.periode === month && t.status === 'Terbayar').reduce((s, t) => s + t.total, 0)
             }));
             const maxVal = Math.max(...chartData.map(d => d.value), 100000);
@@ -298,16 +388,15 @@
                         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition-shadow"><div><p className="text-sm font-medium text-gray-500">Total Tunggakan</p><p className="text-xl font-bold text-red-600">{formatRp(totalTunggakan)}</p></div><div className="bg-red-50 p-3 rounded-full"><i className="fas fa-file-invoice-dollar text-2xl text-red-500"></i></div></div>
                     </div>
 
-                    {/* Grafik Pendapatan */}
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mt-8">
-                        <h3 className="text-lg font-bold mb-6 text-gray-700">Grafik Pemasukan (6 Bulan Terakhir)</h3>
+                    <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 mt-8">
+                        <h3 className="text-lg font-bold mb-6 text-gray-700">Grafik Pemasukan (6 Bulan)</h3>
                         <div className="flex items-end space-x-2 md:space-x-4 h-64 border-b border-l border-gray-200 pb-2 pl-2">
                             {chartData.map((d, i) => (
                                 <div key={i} className="flex flex-col items-center flex-1 h-full justify-end group">
                                     <div className="w-full bg-blue-500 rounded-t-sm hover:bg-blue-600 transition-all relative flex justify-center" style={{ height: `${(d.value / maxVal) * 100}%`, minHeight: '5%' }}>
                                         <span className="opacity-0 group-hover:opacity-100 absolute -top-8 bg-gray-800 text-white text-xs py-1 px-2 rounded whitespace-nowrap z-10 transition-opacity pointer-events-none">{formatRp(d.value)}</span>
                                     </div>
-                                    <span className="text-xs mt-2 text-gray-500 font-medium rotate-45 md:rotate-0 transform origin-top-left md:origin-center">{d.label}</span>
+                                    <span className="text-[10px] md:text-xs mt-2 text-gray-500 font-medium text-center">{d.label}</span>
                                 </div>
                             ))}
                         </div>
@@ -317,12 +406,13 @@
         }
 
         // ==========================================
-        // MANAJEMEN PELANGGAN
+        // MANAJEMEN PELANGGAN (Ada Filter & Download)
         // ==========================================
         function PelangganManager({ data, showToast }) {
             const [modal, setModal] = useState(false); const [editId, setEditId] = useState(null);
             const [form, setForm] = useState({ no: '', nama: '', rt: '', rw: '', status: 'Aktif', hp: '' });
             const [search, setSearch] = useState('');
+            const [filterStatus, setFilterStatus] = useState('Semua');
 
             const openModal = (p = null) => {
                 if(p) { setEditId(p.id); setForm({ no: p.noPelanggan, nama: p.nama, rt: p.rt, rw: p.rw, status: p.status, hp: p.noHp }); }
@@ -348,8 +438,7 @@
             };
 
             const handleFileUpload = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
+                const file = e.target.files[0]; if (!file) return;
                 const reader = new FileReader();
                 reader.onload = async (event) => {
                     const rows = event.target.result.split('\n').filter(r => r.trim() !== '');
@@ -371,40 +460,55 @@
                 reader.readAsText(file);
             };
 
-            const filteredData = data.filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.includes(search));
+            const downloadCSV = () => {
+                let csvContent = "NoPelanggan,Nama,RT,RW,Status,NoHp\n";
+                filteredData.forEach(p => { csvContent += `${p.noPelanggan},${p.nama},${p.rt},${p.rw},${p.status},${p.noHp}\n`; });
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.setAttribute("href", url); link.setAttribute("download", "Data_Pelanggan.csv");
+                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            };
+
+            const filteredData = data
+                .filter(p => filterStatus === 'Semua' || p.status === filterStatus)
+                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.includes(search));
 
             return (
                 <div className="space-y-4">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
                         <h2 className="text-2xl font-bold text-gray-800">Pelanggan</h2>
-                        <div className="flex flex-wrap gap-2 w-full md:w-auto">
-                            <div className="relative flex-1 md:w-64">
+                        <div className="flex flex-wrap gap-2 w-full md:w-auto items-center">
+                            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none">
+                                <option value="Semua">Semua Status</option><option value="Aktif">Aktif</option><option value="Tidak Aktif">Tidak Aktif</option>
+                            </select>
+                            <div className="relative flex-1 md:w-48">
                                 <i className="fas fa-search absolute left-3 top-3 text-gray-400 text-sm"></i>
                                 <input type="text" placeholder="Cari Nama/No..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg outline-none text-sm"/>
                             </div>
-                            <button onClick={()=>openModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm shadow-sm"><i className="fas fa-user-plus mr-2"></i> Tambah</button>
-                            <div className="relative overflow-hidden inline-block">
-                                <input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                                <button className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm shadow-sm flex items-center pointer-events-none"><i className="fas fa-file-import mr-2"></i> Import CSV</button>
+                            <button onClick={()=>openModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm shadow-sm"><i className="fas fa-user-plus md:mr-2"></i> <span className="hidden md:inline">Tambah</span></button>
+                            
+                            <div className="flex bg-gray-100 rounded-lg p-1 border">
+                                <div className="relative overflow-hidden inline-block border-r pr-1">
+                                    <input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" title="Import CSV" />
+                                    <button className="text-green-600 hover:bg-green-200 px-3 py-1.5 rounded text-sm flex items-center pointer-events-none"><i className="fas fa-file-import md:mr-2"></i> <span className="hidden md:inline">Import</span></button>
+                                </div>
+                                <button onClick={downloadCSV} className="text-gray-700 hover:bg-gray-200 px-3 py-1.5 rounded text-sm ml-1" title="Download Data"><i className="fas fa-file-download md:mr-2"></i> <span className="hidden md:inline">Export</span></button>
                             </div>
                         </div>
                     </div>
                     
-                    <div className="bg-blue-50 p-3 rounded text-sm text-blue-800 border border-blue-200">
-                        <strong>Info Import CSV:</strong> Gunakan format kolom: <code>NoPelanggan,Nama,RT,RW,Status,NoHp</code>
-                    </div>
-
                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
                         <table className="w-full text-sm text-left whitespace-nowrap">
-                            <thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">No. Pelanggan</th><th className="p-4">Nama</th><th className="p-4">RT/RW</th><th className="p-4">No HP</th><th className="p-4">Status</th><th className="p-4 text-center">Aksi</th></tr></thead>
+                            <thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">No.</th><th className="p-4">Nama</th><th className="p-4">RT/RW</th><th className="p-4">No HP</th><th className="p-4">Status</th><th className="p-4 text-center">Aksi</th></tr></thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredData.map(p => (
                                     <tr key={p.id} className="hover:bg-gray-50">
                                         <td className="p-4 font-medium">{p.noPelanggan}</td><td className="p-4">{p.nama}</td><td className="p-4">{p.rt}/{p.rw}</td><td className="p-4">{p.noHp}</td>
                                         <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-semibold ${p.status==='Aktif'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{p.status}</span></td>
                                         <td className="p-4 text-center space-x-3">
-                                            <button onClick={()=>openModal(p)} className="text-blue-500 hover:text-blue-700" title="Edit"><i className="fas fa-edit text-base"></i></button>
-                                            <button onClick={()=>hapus(p.id)} className="text-red-500 hover:text-red-700" title="Hapus"><i className="fas fa-trash text-base"></i></button>
+                                            <button onClick={()=>openModal(p)} className="text-blue-500 hover:text-blue-700 p-1"><i className="fas fa-edit text-base"></i></button>
+                                            <button onClick={()=>hapus(p.id)} className="text-red-500 hover:text-red-700 p-1"><i className="fas fa-trash text-base"></i></button>
                                         </td>
                                     </tr>
                                 ))}
@@ -415,7 +519,7 @@
 
                     {modal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl transform transition-all">
+                            <form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
                                 <h3 className="font-bold text-xl mb-5 text-gray-800">{editId ? 'Edit Data Pelanggan' : 'Tambah Pelanggan Baru'}</h3>
                                 <div className="space-y-4 mb-6">
                                     <div className="grid grid-cols-2 gap-4">
@@ -429,7 +533,7 @@
                                         <div><label className="text-xs font-medium text-gray-600 block mb-1">Status</label><select value={form.status} onChange={e=>setForm({...form, status:e.target.value})} className="border p-2 w-full rounded outline-none"><option>Aktif</option><option>Tidak Aktif</option></select></div>
                                     </div>
                                 </div>
-                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-5 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium shadow-md">Simpan</button></div>
+                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-5 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Simpan</button></div>
                             </form>
                         </div>
                     )}
@@ -438,17 +542,18 @@
         }
 
         // ==========================================
-        // MANAJEMEN TAGIHAN
+        // MANAJEMEN TAGIHAN (Ada Filter, Struk Mini tanpa Tarif, WA Formal)
         // ==========================================
-        function TagihanManager({ pelanggan, tagihan, showToast }) {
+        function TagihanManager({ pelanggan, tagihan, settings, showToast }) {
             const [periode, setPeriode] = useState(new Date().toISOString().slice(0, 7));
             const [search, setSearch] = useState('');
+            const [filterStatus, setFilterStatus] = useState('Semua');
             const [modal, setModal] = useState(false); const [selP, setSelP] = useState(null);
             const [existT, setExistT] = useState(null);
             const [mAwal, setMAwal] = useState(''); const [mAkhir, setMAkhir] = useState('');
 
             const kubik = Math.max(0, Number(mAkhir) - Number(mAwal));
-            const totalHitung = (kubik * 1500) + 2000;
+            const totalHitung = (kubik * settings.tarif) + settings.beban;
 
             const openTagihan = (p) => {
                 const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
@@ -456,13 +561,10 @@
                 if(t) { 
                     setMAwal(t.meterAwal); setMAkhir(t.meterAkhir); 
                 } else { 
-                    // Cari meter bulan lalu
-                    const [y, m] = periode.split('-');
-                    let prevM = parseInt(m) - 1; let prevY = parseInt(y);
+                    const [y, m] = periode.split('-'); let prevM = parseInt(m) - 1; let prevY = parseInt(y);
                     if(prevM === 0) { prevM = 12; prevY -= 1; }
                     const prevPer = `${prevY}-${prevM.toString().padStart(2, '0')}`;
                     const tLalu = tagihan.find(x => x.idPelanggan === p.id && x.periode === prevPer);
-                    
                     setMAwal(tLalu ? tLalu.meterAkhir : '0'); setMAkhir(''); 
                 }
                 setModal(true);
@@ -480,33 +582,74 @@
 
             const toggleStatus = async (t) => {
                 await DB_PUSAT.collection('tagihan').doc(t.id).update({ status: t.status === 'Terbayar' ? 'Belum Terbayar' : 'Terbayar' });
-                showToast(`Status diubah`);
+                showToast(`Status Pembayaran Diubah`);
             };
 
+            // Format Pesan WA Formal & Elegan (Tanpa Rincian Tarif/Beban)
             const copyWA = (p, t) => {
-                const msg = `Halo Bpk/Ibu ${p.nama},\n\nBerikut tagihan air HIPAB SRIKOYO:\nPeriode: ${t.periode}\nM.Awal: ${t.meterAwal}\nM.Akhir: ${t.meterAkhir}\nPakai: ${t.meterAkhir - t.meterAwal} m3\nBeban: Rp 2.000\n\n*TOTAL: ${formatRp(t.total)}*\nStatus: ${t.status === 'Terbayar' ? 'LUNAS ✅' : 'BELUM TERBAYAR ❌'}\n\nTerima kasih.`;
+                const periodeNama = formatBulanTahunLengkap(t.periode);
+                const msg = `Yth. Bapak/Ibu ${p.nama},
+
+Bersama pesan ini, kami sampaikan rincian tagihan air bersih ${settings.appName} untuk periode ${periodeNama}.
+
+*Rincian Penggunaan:*
+- Meter Awal : ${t.meterAwal}
+- Meter Akhir: ${t.meterAkhir}
+- Pemakaian  : ${t.meterAkhir - t.meterAwal} m3
+
+*Total Tagihan: ${formatRp(t.total)}*
+Status: ${t.status === 'Terbayar' ? 'LUNAS ✅' : 'BELUM TERBAYAR ❌'}
+
+Demikian informasi ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.
+
+Hormat kami,
+Pengelola ${settings.appName}`;
                 copyToClipboard(msg); showToast("Pesan WA Disalin!");
             };
 
+            // Format Cetak Struk 58mm (Tanpa Rincian Tarif/Beban)
             const cetakStruk = (p, t) => {
                 const pemakaian = t.meterAkhir - t.meterAwal;
                 const html = `
-                    <div class="text-center"><div class="title">HIPAB SRIKOYO</div><div>Desa Srikoyo</div></div><hr />
-                    <div>No: ${p.noPelanggan}</div><div>Nama: ${p.nama}</div><div>Periode: ${t.periode}</div><hr />
-                    <table><tr><td>M.Awal</td><td class="text-right">${t.meterAwal}</td></tr><tr><td>M.Akhir</td><td class="text-right">${t.meterAkhir}</td></tr>
-                    <tr><td>Pakai</td><td class="text-right">${pemakaian} m3</td></tr><tr><td>Tarif</td><td class="text-right">Rp 1.500</td></tr><tr><td>Beban</td><td class="text-right">Rp 2.000</td></tr></table><hr />
-                    <div class="bold" style="display:flex; justify-content:space-between; font-size:12px;"><span>TOTAL:</span><span>${formatRp(t.total)}</span></div><hr />
-                    <div class="text-center" style="margin-top:5px;"><div class="bold" style="font-size:14px;">${t.status === 'Terbayar' ? 'LUNAS' : 'BELUM LUNAS'}</div><div style="margin-top:10px;">Terima Kasih</div></div>`;
+                    <div class="text-center"><div class="title">${settings.appName}</div></div><hr />
+                    <table style="margin-bottom: 5px;">
+                        <tr><td style="width: 35px;">No</td><td>: ${p.noPelanggan}</td></tr>
+                        <tr><td>Nama</td><td>: ${p.nama}</td></tr>
+                        <tr><td>Periode</td><td>: ${formatBulanTahunSingkat(t.periode)}</td></tr>
+                    </table><hr />
+                    <table>
+                        <tr><td>M. Awal</td><td class="text-right">${t.meterAwal}</td></tr>
+                        <tr><td>M. Akhir</td><td class="text-right">${t.meterAkhir}</td></tr>
+                        <tr><td>Pemakaian</td><td class="text-right">${pemakaian} m3</td></tr>
+                    </table><hr />
+                    <div class="bold" style="display:flex; justify-content:space-between; font-size:14px; margin: 4px 0;">
+                        <span>TOTAL</span><span>${formatRp(t.total)}</span>
+                    </div><hr />
+                    <div class="text-center" style="margin-top:8px;">
+                        <div class="bold" style="font-size:16px;">${t.status === 'Terbayar' ? 'LUNAS' : 'BELUM LUNAS'}</div>
+                        <div style="margin-top:12px; font-size:10px;">Terima Kasih</div>
+                    </div>`;
                 printContent(html, 'receipt');
             };
 
-            const filteredPelanggan = pelanggan.filter(p => p.status === 'Aktif' || tagihan.some(t => t.idPelanggan === p.id && t.periode === periode)).filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.includes(search));
+            const filteredPelanggan = pelanggan
+                .filter(p => p.status === 'Aktif' || tagihan.some(t => t.idPelanggan === p.id && t.periode === periode))
+                .filter(p => {
+                    const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
+                    if(filterStatus === 'Semua') return true;
+                    if(filterStatus === 'Terbayar') return t && t.status === 'Terbayar';
+                    if(filterStatus === 'Belum Terbayar') return !t || t.status === 'Belum Terbayar';
+                })
+                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.includes(search));
 
             return (
                 <div className="space-y-4">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Manajemen Tagihan</h2>
+                        <h2 className="text-2xl font-bold text-gray-800">Tagihan</h2>
                         <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
+                            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none">
+                                <option value="Semua">Semua Tagihan</option><option value="Belum Terbayar">Belum Lunas</option><option value="Terbayar">Lunas</option>
+                            </select>
                             <div className="flex items-center space-x-2 bg-white px-3 py-1.5 border rounded-lg shadow-sm">
                                 <span className="text-sm text-gray-600">Periode:</span>
                                 <input type="month" value={periode} onChange={e=>setPeriode(e.target.value)} className="outline-none text-sm font-bold text-blue-600 bg-transparent"/>
@@ -520,7 +663,7 @@
 
                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
                         <table className="w-full text-sm text-left whitespace-nowrap">
-                            <thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">Pelanggan</th><th className="p-4">M.Awal</th><th className="p-4">M.Akhir</th><th className="p-4">Total Tagihan</th><th className="p-4 text-center">Status</th><th className="p-4 text-center">Aksi (Struk/WA/Edit)</th></tr></thead>
+                            <thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">Pelanggan</th><th className="p-4">M.Awal</th><th className="p-4">M.Akhir</th><th className="p-4">Total</th><th className="p-4 text-center">Status</th><th className="p-4 text-center">Aksi (Struk/WA/Edit)</th></tr></thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredPelanggan.map(p => {
                                     const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
@@ -532,12 +675,12 @@
                                                 <td className="p-4">{t.meterAwal}</td><td className="p-4">{t.meterAkhir}</td><td className="p-4 font-bold">{formatRp(t.total)}</td>
                                                 <td className="p-4 text-center"><button onClick={()=>toggleStatus(t)} className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${t.status==='Terbayar'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{t.status}</button></td>
                                                 <td className="p-4 text-center space-x-2">
-                                                    <button onClick={()=>cetakStruk(p,t)} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded" title="Cetak Struk"><i className="fas fa-print"></i></button>
-                                                    <button onClick={()=>copyWA(p,t)} className="p-2 bg-green-100 hover:bg-green-200 text-green-700 rounded" title="Copy WA"><i className="fab fa-whatsapp"></i></button>
-                                                    <button onClick={()=>openTagihan(p)} className="p-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded" title="Edit Tagihan"><i className="fas fa-edit"></i></button>
+                                                    <button onClick={()=>cetakStruk(p,t)} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border" title="Cetak Struk"><i className="fas fa-print"></i></button>
+                                                    <button onClick={()=>copyWA(p,t)} className="p-2 bg-green-50 hover:bg-green-100 text-green-600 rounded border border-green-200" title="Copy WA"><i className="fab fa-whatsapp"></i></button>
+                                                    <button onClick={()=>openTagihan(p)} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded border border-blue-200" title="Edit"><i className="fas fa-edit"></i></button>
                                                 </td>
                                             </>
-                                        ) : (<td colSpan="5" className="p-4 text-center"><button onClick={()=>openTagihan(p)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium shadow-sm"><i className="fas fa-plus mr-1"></i> Input Tagihan</button></td>)}
+                                        ) : (<td colSpan="5" className="p-4 text-center"><button onClick={()=>openTagihan(p)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs shadow-sm"><i className="fas fa-plus mr-1"></i> Buat Tagihan</button></td>)}
                                         </tr>
                                     )
                                 })}
@@ -550,18 +693,18 @@
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
                                 <h3 className="font-bold text-lg mb-1 text-gray-800">Input Tagihan</h3>
-                                <p className="text-sm text-gray-500 mb-4">{selP.nama} - {periode}</p>
+                                <p className="text-sm text-gray-500 mb-4">{selP.nama} - {formatBulanTahunSingkat(periode)}</p>
                                 <div className="flex gap-3 mb-4">
                                     <div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Awal</label><input type="number" min="0" value={mAwal} onChange={e=>setMAwal(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
                                     <div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Akhir</label><input type="number" min={mAwal} value={mAkhir} onChange={e=>setMAkhir(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
                                 </div>
                                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mb-6 text-sm text-gray-700 space-y-1">
                                     <div className="flex justify-between"><span>Pemakaian:</span><span>{kubik} m3</span></div>
-                                    <div className="flex justify-between"><span>Tarif (Rp 1.500):</span><span>{formatRp(kubik * 1500)}</span></div>
-                                    <div className="flex justify-between pb-2 border-b border-blue-200"><span>Beban Tetap:</span><span>Rp 2.000</span></div>
+                                    <div className="flex justify-between"><span>Tarif ({formatRp(settings.tarif)}):</span><span>{formatRp(kubik * settings.tarif)}</span></div>
+                                    <div className="flex justify-between pb-2 border-b border-blue-200"><span>Beban Tetap:</span><span>{formatRp(settings.beban)}</span></div>
                                     <div className="flex justify-between font-bold text-blue-900 pt-1 text-lg"><span>Total:</span><span>{formatRp(totalHitung)}</span></div>
                                 </div>
-                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow">Simpan Tagihan</button></div>
+                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow">Simpan</button></div>
                             </form>
                         </div>
                     )}
@@ -570,9 +713,116 @@
         }
 
         // ==========================================
+        // MENU BARU: PENGATURAN
+        // ==========================================
+        function PengaturanManager({ settings, adminUsers, showToast }) {
+            const [formSettings, setFormSettings] = useState(settings);
+            const [usersList, setUsersList] = useState(adminUsers);
+
+            // Handler Ubah Logo ke Base64
+            const handleLogoUpload = (e) => {
+                const file = e.target.files[0];
+                if(file) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => { setFormSettings({...formSettings, logo: ev.target.result}); };
+                    reader.readAsDataURL(file);
+                }
+            };
+
+            const simpanPengaturan = async (e) => {
+                e.preventDefault();
+                try {
+                    await DB_PUSAT.collection('pengaturan').doc('konfigurasi').set({
+                        appName: formSettings.appName,
+                        tarif: Number(formSettings.tarif),
+                        beban: Number(formSettings.beban),
+                        logo: formSettings.logo
+                    });
+                    showToast("Pengaturan Aplikasi Berhasil Disimpan!");
+                } catch(err) { alert(err.message); }
+            };
+
+            const tambahUser = () => {
+                setUsersList([...usersList, { id: Date.now().toString(), username: '', password: '' }]);
+            };
+            
+            const updateUser = (id, field, value) => {
+                setUsersList(usersList.map(u => u.id === id ? { ...u, [field]: value } : u));
+            };
+
+            const hapusUser = (id) => {
+                if(usersList.length <= 1) return alert("Minimal harus ada 1 akun Admin!");
+                setUsersList(usersList.filter(u => u.id !== id));
+            };
+
+            const simpanUsers = async () => {
+                // Validasi kosong
+                if(usersList.some(u => !u.username.trim() || !u.password.trim())) return alert("Username dan Password tidak boleh kosong!");
+                try {
+                    await DB_PUSAT.collection('pengaturan').doc('users').set({ list: usersList });
+                    showToast("Data Akun Admin Berhasil Disimpan!");
+                } catch(err) { alert(err.message); }
+            };
+
+            return (
+                <div className="space-y-8 max-w-4xl">
+                    <h2 className="text-2xl font-bold border-b pb-4 text-gray-800">Pengaturan Aplikasi</h2>
+                    
+                    {/* Form Konfigurasi Aplikasi */}
+                    <form onSubmit={simpanPengaturan} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <h3 className="text-lg font-bold text-gray-700 mb-4"><i className="fas fa-sliders-h mr-2"></i> Identitas & Tarif</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Aplikasi</label>
+                                <input type="text" value={formSettings.appName} onChange={e=>setFormSettings({...formSettings, appName:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Ubah Logo (Opsional)</label>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 bg-gray-100 border rounded flex items-center justify-center overflow-hidden">
+                                        <LogoRenderer logo={formSettings.logo} className="text-xl text-gray-400" />
+                                    </div>
+                                    <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm flex-1 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Tarif per Kubik (Rp)</label>
+                                <input type="number" value={formSettings.tarif} onChange={e=>setFormSettings({...formSettings, tarif:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Beban Meteran Tetap (Rp)</label>
+                                <input type="number" value={formSettings.beban} onChange={e=>setFormSettings({...formSettings, beban:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/>
+                            </div>
+                        </div>
+                        <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow font-medium"><i className="fas fa-save mr-2"></i> Simpan Pengaturan</button>
+                    </form>
+
+                    {/* Form Akun Admin */}
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-gray-700"><i className="fas fa-user-shield mr-2"></i> Akun Admin (Login)</h3>
+                            <button onClick={tambahUser} className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded border"><i className="fas fa-plus mr-1"></i> Tambah User</button>
+                        </div>
+                        <div className="space-y-3 mb-6">
+                            {usersList.map((u, i) => (
+                                <div key={u.id} className="flex gap-3 items-center">
+                                    <span className="w-6 text-center text-sm font-bold text-gray-400">{i+1}.</span>
+                                    <input type="text" placeholder="Username" value={u.username} onChange={e=>updateUser(u.id, 'username', e.target.value)} className="border p-2 w-full rounded outline-none text-sm"/>
+                                    <input type="text" placeholder="Password" value={u.password} onChange={e=>updateUser(u.id, 'password', e.target.value)} className="border p-2 w-full rounded outline-none text-sm"/>
+                                    <button onClick={()=>hapusUser(u.id)} className="text-red-500 hover:bg-red-50 p-2 rounded"><i className="fas fa-trash"></i></button>
+                                </div>
+                            ))}
+                        </div>
+                        <button onClick={simpanUsers} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg shadow font-medium"><i className="fas fa-save mr-2"></i> Simpan Akun</button>
+                    </div>
+                </div>
+            );
+        }
+
+        // ==========================================
         // PELAPORAN
         // ==========================================
-        function Pelaporan({ pelanggan, tagihan }) {
+        function Pelaporan({ pelanggan, tagihan, settings }) {
             const [reportType, setReportType] = useState('bulanan');
             const [filterPeriode, setFilterPeriode] = useState(new Date().toISOString().slice(0, 7));
             const [filterTahun, setFilterTahun] = useState(new Date().getFullYear().toString());
@@ -583,15 +833,15 @@
             let reportHtml = ""; let reportTitle = "";
 
             if (reportType === 'bulanan') {
-                reportTitle = `Laporan Bulanan - Periode ${filterPeriode}`;
+                reportTitle = `Laporan Bulanan - ${formatBulanTahunLengkap(filterPeriode)}`;
                 const tags = tagihan.filter(t => t.periode === filterPeriode);
                 const terbayar = tags.filter(t => t.status === 'Terbayar');
                 const belum = tags.filter(t => t.status === 'Belum Terbayar');
-                reportHtml = `<div class="header"><h2>HIPAB SRIKOYO</h2><h3>${reportTitle}</h3></div>
-                    <p>Total Pemasukan: <strong>${formatRp(terbayar.reduce((s,t)=>s+t.total,0))}</strong> (${terbayar.length} Org)</p>
-                    <p>Total Tunggakan: <strong>${formatRp(belum.reduce((s,t)=>s+t.total,0))}</strong> (${belum.length} Org)</p>
-                    <table><thead><tr><th>No</th><th>Nama</th><th>M.Awal</th><th>M.Akhir</th><th>Tagihan</th><th>Status</th></tr></thead><tbody>
-                    ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-center">${t.meterAwal}</td><td class="text-center">${t.meterAkhir}</td><td class="text-right">${formatRp(t.total)}</td><td>${t.status}</td></tr>`).join('')}
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2><h3>${reportTitle}</h3></div>
+                    <p>Total Pemasukan (Lunas): <strong>${formatRp(terbayar.reduce((s,t)=>s+t.total,0))}</strong> (${terbayar.length} Pelanggan)</p>
+                    <p>Total Tunggakan: <strong>${formatRp(belum.reduce((s,t)=>s+t.total,0))}</strong> (${belum.length} Pelanggan)</p>
+                    <table><thead><tr><th>No. Pel</th><th>Nama</th><th>M.Awal</th><th>M.Akhir</th><th>Total Tagihan</th><th>Status</th></tr></thead><tbody>
+                    ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-center">${t.meterAwal}</td><td class="text-center">${t.meterAkhir}</td><td class="text-right">${formatRp(t.total)}</td><td>${t.status==='Terbayar'?'Lunas':'Belum'}</td></tr>`).join('')}
                     ${tags.length===0?'<tr><td colspan="6" class="text-center">Tidak ada data</td></tr>':''}</tbody></table>`;
             } else if (reportType === 'tahunan') {
                 reportTitle = `Laporan Pendapatan Tahunan - ${filterTahun}`;
@@ -600,22 +850,22 @@
                     const tags = tagihan.filter(t => t.periode === `${filterTahun}-${m}`);
                     return { bulan: m, lunas: tags.filter(t=>t.status==='Terbayar').reduce((s,t)=>s+t.total,0), tunggak: tags.filter(t=>t.status==='Belum Terbayar').reduce((s,t)=>s+t.total,0), totalP: tags.length };
                 });
-                reportHtml = `<div class="header"><h2>HIPAB SRIKOYO</h2><h3>${reportTitle}</h3></div><table><thead><tr><th>Bulan</th><th>Jml Ditagih</th><th>Pemasukan Lunas</th><th>Tunggakan</th></tr></thead><tbody>
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2><h3>${reportTitle}</h3></div><table><thead><tr><th>Bulan</th><th>Ditagih (Orang)</th><th>Pemasukan Lunas</th><th>Sisa Tunggakan</th></tr></thead><tbody>
                     ${data.map(m => `<tr><td class="text-center">${m.bulan}-${filterTahun}</td><td class="text-center">${m.totalP}</td><td class="text-right">${formatRp(m.lunas)}</td><td class="text-right">${formatRp(m.tunggak)}</td></tr>`).join('')}
                     </tbody><tfoot><tr style="font-weight:bold;background:#eee;"><td colspan="2" class="text-center">TOTAL KESELURUHAN</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.lunas,0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.tunggak,0))}</td></tr></tfoot></table>`;
             } else if (reportType === 'tunggakan_bulan') {
-                reportTitle = `Laporan Tunggakan Perbulan - ${filterPeriode}`;
+                reportTitle = `Laporan Tunggakan Perbulan - ${formatBulanTahunLengkap(filterPeriode)}`;
                 const tags = tagihan.filter(t => t.periode === filterPeriode && t.status === 'Belum Terbayar');
-                reportHtml = `<div class="header"><h2>HIPAB SRIKOYO</h2><h3>${reportTitle}</h3></div><p>Total Tunggakan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
-                    <table><thead><tr><th>No</th><th>Nama</th><th>Pakai (m3)</th><th>Total Tunggakan</th></tr></thead><tbody>
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2><h3>${reportTitle}</h3></div><p>Total Tunggakan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
+                    <table><thead><tr><th>No. Pel</th><th>Nama</th><th>Pemakaian (m3)</th><th>Total Tunggakan</th></tr></thead><tbody>
                     ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-center">${t.meterAkhir-t.meterAwal}</td><td class="text-right">${formatRp(t.total)}</td></tr>`).join('')}
                     ${tags.length===0?'<tr><td colspan="4" class="text-center">Tidak ada tunggakan</td></tr>':''}</tbody></table>`;
             } else {
                 reportTitle = `Laporan Tunggakan Pertahun - ${filterTahun}`;
                 const tags = tagihan.filter(t => t.periode.startsWith(filterTahun) && t.status === 'Belum Terbayar');
                 const grouped = tags.reduce((acc, t) => { if(!acc[t.idPelanggan]) acc[t.idPelanggan]={t:0,b:[]}; acc[t.idPelanggan].t+=t.total; acc[t.idPelanggan].b.push(t.periode.split('-')[1]); return acc; }, {});
-                reportHtml = `<div class="header"><h2>HIPAB SRIKOYO</h2><h3>${reportTitle}</h3></div><p>Total Seluruh Tunggakan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
-                    <table><thead><tr><th>No</th><th>Nama</th><th>Bulan Menunggak</th><th>Total Tunggakan</th></tr></thead><tbody>
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2><h3>${reportTitle}</h3></div><p>Total Seluruh Tunggakan: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
+                    <table><thead><tr><th>No. Pel</th><th>Nama</th><th>Bulan Menunggak</th><th>Total Tunggakan</th></tr></thead><tbody>
                     ${Object.keys(grouped).map(id => `<tr><td>${getNo(id)}</td><td>${getName(id)}</td><td>${grouped[id].b.join(', ')}</td><td class="text-right font-bold">${formatRp(grouped[id].t)}</td></tr>`).join('')}
                     ${Object.keys(grouped).length===0?'<tr><td colspan="4" class="text-center">Aman, tidak ada tunggakan tahun ini</td></tr>':''}</tbody></table>`;
             }
