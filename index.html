@@ -5,20 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Aplikasi Air Bersih</title>
     
-    <!-- Import Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Import FontAwesome (Ikon) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Import React & ReactDOM -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     
-    <!-- Import Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Import Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -71,7 +66,7 @@
         const getCurrentDate = () => {
             const d = new Date();
             const months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
-            return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
+            return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         };
 
         const copyToClipboard = (text) => {
@@ -409,7 +404,7 @@
         }
 
         // ==========================================
-        // MANAJEMEN PELANGGAN (Fix Import/Export CSV Excel)
+        // MANAJEMEN PELANGGAN 
         // ==========================================
         function PelangganManager({ data, showToast }) {
             const [modal, setModal] = useState(false); const [editId, setEditId] = useState(null);
@@ -446,25 +441,18 @@
                 const reader = new FileReader();
                 reader.onload = async (event) => {
                     const text = event.target.result;
-                    // Memecah baris (Mendukung format newline Windows \r\n maupun Mac/Linux \n)
                     const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
                     if (rows.length < 2) return alert('Format file kosong atau salah.');
                     
-                    // Cerdas: Deteksi apakah Excel menggunakan titik koma (;) atau koma (,)
                     const delimiter = rows[0].includes(';') ? ';' : ',';
                     
                     let successCount = 0;
                     for (let i = 1; i < rows.length; i++) {
-                        // Memecah kolom dan menghilangkan tanda kutip jika Excel menambahkannya
                         const cols = rows[i].split(delimiter).map(c => c.replace(/^"|"$/g, '').trim());
-                        if (cols.length >= 2) { // Minimal ada No Pelanggan dan Nama
+                        if (cols.length >= 2) {
                             await DB_PUSAT.collection('pelanggan').add({
-                                noPelanggan: cols[0] || '', 
-                                nama: cols[1] || '', 
-                                rt: cols[2] || '', 
-                                rw: cols[3] || '',
-                                status: (cols[4] && cols[4].toLowerCase().includes('tidak')) ? 'Tidak Aktif' : 'Aktif', 
-                                noHp: cols[5] || ''
+                                noPelanggan: cols[0] || '', nama: cols[1] || '', rt: cols[2] || '', rw: cols[3] || '',
+                                status: (cols[4] && cols[4].toLowerCase().includes('tidak')) ? 'Tidak Aktif' : 'Aktif', noHp: cols[5] || ''
                             });
                             successCount++;
                         }
@@ -476,10 +464,8 @@
             };
 
             const downloadCSV = () => {
-                // Menggunakan titik koma (;) agar otomatis rapi saat dibuka di Microsoft Excel Indonesia
                 let csvContent = "NoPelanggan;Nama;RT;RW;Status;NoHp\n";
                 filteredData.forEach(p => { csvContent += `"${p.noPelanggan}";"${p.nama}";"${p.rt}";"${p.rw}";"${p.status}";"${p.noHp}"\n`; });
-                // Tambahkan BOM \ufeff agar Excel membaca sebagai UTF-8 dengan benar
                 const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
@@ -567,7 +553,7 @@
         }
 
         // ==========================================
-        // MANAJEMEN TAGIHAN (SISTEM GLOBAL AUTO LUNAS TUNGGAKAN LAMA)
+        // MANAJEMEN TAGIHAN (SISTEM GLOBAL AUTO LUNAS & KEMBALIAN)
         // ==========================================
         function TagihanManager({ pelanggan, tagihan, settings, showToast }) {
             const [periode, setPeriode] = useState(new Date().toISOString().slice(0, 7));
@@ -607,11 +593,8 @@
             const simpanTagihan = async (e) => {
                 e.preventDefault();
                 const payload = { 
-                    idPelanggan: selP.id, periode, 
-                    meterAwal: Number(mAwal), meterAkhir: Number(mAkhir), 
-                    total: totalHitung, 
-                    terbayar: existT ? getTerbayar(existT) : 0,
-                    status: existT ? existT.status : 'Belum Terbayar'
+                    idPelanggan: selP.id, periode, meterAwal: Number(mAwal), meterAkhir: Number(mAkhir), total: totalHitung, 
+                    terbayar: existT ? getTerbayar(existT) : 0, status: existT ? existT.status : 'Belum Terbayar'
                 };
                 try {
                     if(existT) await DB_PUSAT.collection('tagihan').doc(existT.id).update(payload); 
@@ -627,49 +610,47 @@
                 }
             };
 
-            // --- SISTEM PEMBAYARAN GLOBAL (AUTO-LUNASI TUNGGAKAN LAMA) ---
+            // --- SISTEM PEMBAYARAN GLOBAL ---
             const openPayModal = (p) => {
-                setSelP(p);
-                setPayNominal('');
-                setPayModal(true);
+                setSelP(p); setPayNominal(''); setPayModal(true);
             };
 
             const simpanPayGlobal = async (e) => {
                 e.preventDefault();
-                let uang = Number(payNominal);
-                if(uang < 0) return alert("Nominal tidak valid!");
+                let uangTersedia = Number(payNominal);
+                if(uangTersedia < 0) return alert("Nominal tidak valid!");
                 
                 try {
-                    // 1. Prioritaskan lunasi tagihan bulan yang sedang dibuka
+                    // Prioritaskan bulan ini
                     const currentTagihan = tagihan.find(t => t.idPelanggan === selP.id && t.periode === periode);
-                    if (currentTagihan && uang > 0) {
+                    if (currentTagihan && uangTersedia > 0) {
                         const sisaCurrent = getSisa(currentTagihan);
                         if (sisaCurrent > 0) {
-                            const bayarSini = Math.min(uang, sisaCurrent);
+                            const bayarSini = Math.min(uangTersedia, sisaCurrent);
                             await DB_PUSAT.collection('tagihan').doc(currentTagihan.id).update({
                                 terbayar: getTerbayar(currentTagihan) + bayarSini,
                                 status: (getTerbayar(currentTagihan) + bayarSini) >= currentTagihan.total ? 'Terbayar' : 'Belum Terbayar'
                             });
-                            uang -= bayarSini;
+                            uangTersedia -= bayarSini;
                         }
                     }
 
-                    // 2. Jika ada sisa uang, lunasi tunggakan lama (dari yang terlama)
-                    if (uang > 0) {
+                    // Sisa uang untuk tunggakan lain (terlama)
+                    if (uangTersedia > 0) {
                         const unpaidLain = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0 && t.periode !== periode).sort((a,b)=>a.periode.localeCompare(b.periode));
                         for(let t of unpaidLain) {
-                            if(uang <= 0) break;
+                            if(uangTersedia <= 0) break;
                             const sisaT = getSisa(t);
-                            const bayarSini = Math.min(uang, sisaT);
+                            const bayarSini = Math.min(uangTersedia, sisaT);
                             await DB_PUSAT.collection('tagihan').doc(t.id).update({
                                 terbayar: getTerbayar(t) + bayarSini,
                                 status: (getTerbayar(t) + bayarSini) >= t.total ? 'Terbayar' : 'Belum Terbayar'
                             });
-                            uang -= bayarSini;
+                            uangTersedia -= bayarSini;
                         }
                     }
                     
-                    setPayModal(false); setPayNominal(''); showToast('Pembayaran Berhasil Didistribusikan!');
+                    setPayModal(false); setPayNominal(''); showToast('Pembayaran Berhasil Dicatat!');
                 } catch(err) { alert(err.message); }
             };
 
@@ -711,13 +692,15 @@
                         <tr class="bold"><td>TOTAL TAGIHAN</td><td class="text-right">${formatRp(totalHarusDibayar)}</td></tr>
                     </table><hr />
                     <table>
-                        <tr><td>DIBAYAR</td><td class="text-right">${formatRp(getTerbayar(t))}</td></tr>
+                        <tr><td>DIBAYAR BLN INI</td><td class="text-right">${formatRp(getTerbayar(t))}</td></tr>
                         <tr class="bold" style="color:red; font-size:13px;"><td>SISA TOTAL HUTANG</td><td class="text-right">${formatRp(totalHutang)}</td></tr>
                     </table><hr />
                     <div class="text-center" style="margin-top:8px;">
                         <div class="bold" style="font-size:16px;">${totalHutang <= 0 ? 'LUNAS' : (getTerbayar(t) > 0 ? 'NYICIL' : 'BELUM LUNAS')}</div>
                         <div style="font-size:11px; margin-top: 4px;">TGL CETAK: ${getCurrentDate()}</div>
-                        <div style="margin-top:12px; font-size:11px;">TERIMA KASIH</div>
+                        
+                        <div style="margin-top:12px; font-size:11px; font-weight:bold; border-top: 1px dashed #333; padding-top: 4px;">* BUKTI PEMBAYARAN YANG SAH *</div>
+                        <div style="margin-top:4px; font-size:11px;">TERIMA KASIH</div>
                         <div style="margin-top:4px; font-size:11px;">HORMAT KAMI, PENGURUS</div>
                     </div>`;
                 printContent(html, 'receipt');
@@ -743,12 +726,13 @@ ${alignLeftRight('TAGIHAN BLN INI', formatRp(t.total))}
 ${alignLeftRight('TUNGGAKAN LALU', formatRp(tunggakanLalu))}
 ${alignLeftRight('TOTAL TAGIHAN', formatRp(totalHarusDibayar))}
 --------------------------------
-${alignLeftRight('DIBAYAR', formatRp(getTerbayar(t)))}
+${alignLeftRight('DIBAYAR BLN INI', formatRp(getTerbayar(t)))}
 ${alignLeftRight('SISA TOTAL HTG', formatRp(totalHutang))}
 --------------------------------
 ${alignCenter(totalHutang <= 0 ? '*** LUNAS ***' : (getTerbayar(t) > 0 ? '** NYICIL **' : 'BELUM LUNAS'))}
 TGL CETAK: ${getCurrentDate()}
 
+${alignCenter('** BUKTI PEMBAYARAN SAH **')}
 ${alignCenter('TERIMA KASIH')}
 ${alignCenter('HORMAT KAMI,')}
 ${alignCenter('PENGURUS')}
@@ -773,7 +757,6 @@ ${alignCenter('PENGURUS')}
                     const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
                     if(filterStatus === 'Semua') return true;
                     
-                    // Filter berdasarkan total seluruh hutang agar lebih akurat dengan keadaan lapangan
                     const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
                     if(filterStatus === 'LUNAS') return totalHutang <= 0 && t;
                     if(filterStatus === 'BELUM') return totalHutang > 0 && (!t || t.status === 'Belum Terbayar');
@@ -809,7 +792,6 @@ ${alignCenter('PENGURUS')}
                         </div>
                     </div>
 
-                    {/* Ringkasan Bulan Ini */}
                     <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4">
                         <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center shadow-sm">
                             <p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Total Tagihan Bln Ini</p>
@@ -883,7 +865,7 @@ ${alignCenter('PENGURUS')}
                         </div>
                     )}
 
-                    {/* MODAL 2: PEMBAYARAN GLOBAL (AUTO-LUNAS) */}
+                    {/* MODAL 2: PEMBAYARAN GLOBAL (KALKULATOR KEMBALIAN) */}
                     {payModal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <form onSubmit={simpanPayGlobal} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
@@ -897,6 +879,9 @@ ${alignCenter('PENGURUS')}
                                     const tunggakanDepan = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0 && t.periode > periode).reduce((s,t)=>s+getSisa(t), 0);
                                     const totalHutang = sisaBulanIni + tunggakanLalu + tunggakanDepan;
                                     
+                                    const uangDiberikan = Number(payNominal);
+                                    const kembalian = uangDiberikan > totalHutang ? uangDiberikan - totalHutang : 0;
+                                    
                                     return (
                                         <>
                                             <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-4 text-sm text-gray-700 space-y-1">
@@ -907,12 +892,21 @@ ${alignCenter('PENGURUS')}
                                             <div className="mb-6">
                                                 <label className="text-xs font-medium text-gray-600 block mb-1">Uang yang Diserahkan Warga (Rp)</label>
                                                 <input type="number" min="0" value={payNominal} onChange={e=>setPayNominal(e.target.value)} className="border p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-xl font-bold text-green-700 text-center" placeholder="0" required/>
+                                                
+                                                {/* FITUR KALKULATOR KEMBALIAN */}
+                                                {kembalian > 0 && (
+                                                    <div className="bg-green-50 border border-green-200 text-green-800 p-3 rounded-lg mt-3 text-center animate-pulse">
+                                                        <span className="text-xs block font-bold">UANG KEMBALIAN:</span>
+                                                        <span className="text-2xl font-black">{formatRp(kembalian)}</span>
+                                                    </div>
+                                                )}
+
                                                 <div className="flex justify-between mt-2">
                                                     <button type="button" onClick={()=>setPayNominal(0)} className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">Kosongkan</button>
-                                                    <button type="button" onClick={()=>setPayNominal(totalHutang)} className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200 font-bold">Lunas Semua</button>
+                                                    <button type="button" onClick={()=>setPayNominal(totalHutang)} className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200 font-bold">Uang Pas / Lunas</button>
                                                 </div>
                                             </div>
-                                            <p className="text-[10px] text-gray-400 mb-4 text-center leading-tight">Uang akan diprioritaskan memotong tagihan <strong>bulan ini</strong> terlebih dahulu, sisanya akan melunasi tunggakan lain.</p>
+                                            <p className="text-[10px] text-gray-400 mb-4 text-center leading-tight">Uang akan diprioritaskan memotong tagihan <strong>bulan ini</strong> terlebih dahulu, sisanya melunasi tunggakan lain.</p>
                                         </>
                                     );
                                 })()}
@@ -945,11 +939,8 @@ ${alignCenter('PENGURUS')}
                 e.preventDefault();
                 try {
                     await DB_PUSAT.collection('pengaturan').doc('konfigurasi').set({
-                        appName: formSettings.appName,
-                        appSubtitle: formSettings.appSubtitle || '',
-                        tarif: Number(formSettings.tarif),
-                        beban: Number(formSettings.beban),
-                        logo: formSettings.logo
+                        appName: formSettings.appName, appSubtitle: formSettings.appSubtitle || '',
+                        tarif: Number(formSettings.tarif), beban: Number(formSettings.beban), logo: formSettings.logo
                     });
                     showToast("Pengaturan Aplikasi Berhasil Disimpan!");
                 } catch(err) { alert(err.message); }
@@ -1060,13 +1051,9 @@ ${alignCenter('PENGURUS')}
             } else {
                 reportTitle = `Laporan Tunggakan Keseluruhan`;
                 
-                // Group by customer for ALL time, not just this year
                 const grouped = tagihan.filter(t => getSisa(t) > 0).reduce((acc, t) => { 
                     if(!acc[t.idPelanggan]) acc[t.idPelanggan]={tot:0, bayar:0, sisa:0, b:[]}; 
-                    acc[t.idPelanggan].tot+=t.total; 
-                    acc[t.idPelanggan].bayar+=getTerbayar(t); 
-                    acc[t.idPelanggan].sisa+=getSisa(t); 
-                    acc[t.idPelanggan].b.push(formatBulanTahunSingkat(t.periode)); 
+                    acc[t.idPelanggan].tot+=t.total; acc[t.idPelanggan].bayar+=getTerbayar(t); acc[t.idPelanggan].sisa+=getSisa(t); acc[t.idPelanggan].b.push(formatBulanTahunSingkat(t.periode)); 
                     return acc; 
                 }, {});
 
