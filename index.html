@@ -46,9 +46,7 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // Jalur Sinkronisasi Data Utama
         const DB_PUSAT = db.collection('srikoyo_database').doc('main_data');
-
         const { useState, useEffect, useRef } = React;
 
         // --- FUNGSI BANTUAN (UTILITY) ---
@@ -173,7 +171,7 @@
                 const unsubUsers = DB_PUSAT.collection('pengaturan').doc('users').onSnapshot(doc => {
                     if(doc.exists) setAdminUsers(doc.data().list || []);
                     else {
-                        const defaultUsers = [{ id: Date.now().toString(), username: 'admin', password: 'admin123', role: 'Admin' }];
+                        const defaultUsers = [{ id: Date.now().toString(), username: 'admin', password: 'admin123', role: 'Admin', wilayah: '' }];
                         DB_PUSAT.collection('pengaturan').doc('users').set({ list: defaultUsers }); setAdminUsers(defaultUsers);
                     }
                 });
@@ -200,11 +198,9 @@
             if (!currentUser) return <LoginScreen users={adminUsers} settings={settings} onLogin={(userObj) => { 
                 localStorage.setItem('hipab_user', JSON.stringify(userObj)); 
                 setCurrentUser(userObj); 
-                // Petugas tidak boleh lihat dashboard, arahkan ke Pelanggan
                 if(userObj.role === 'Petugas') setActiveTab('pelanggan');
             }} showToast={showToast} />;
 
-            const validTagihanData = tagihanData.filter(t => pelangganData.some(p => p.id === t.idPelanggan));
             const isAdmin = currentUser.role === 'Admin';
 
             return (
@@ -217,6 +213,7 @@
                             <h1 className="text-lg font-bold tracking-wide text-center px-2 leading-tight">{settings.appName}</h1>
                             {settings.appSubtitle && <p className="text-sm font-medium text-blue-200 text-center px-2 mt-1">{settings.appSubtitle}</p>}
                             <span className="mt-3 bg-blue-800 px-3 py-1 rounded-full text-xs border border-blue-700">Login: {currentUser.username} ({currentUser.role})</span>
+                            {currentUser.wilayah && <span className="mt-1 text-[10px] text-blue-300">Wilayah: {currentUser.wilayah}</span>}
                         </div>
                         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
                             {isAdmin && <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>setActiveTab('dashboard')} />}
@@ -259,11 +256,11 @@
                         )}
 
                         <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8">
-                            {activeTab === 'dashboard' && isAdmin && <Dashboard pelanggan={pelangganData} tagihan={validTagihanData} pengeluaran={pengeluaranData} />}
-                            {activeTab === 'pelanggan' && <PelangganManager data={pelangganData} showToast={showToast} isAdmin={isAdmin} />}
-                            {activeTab === 'tagihan' && <TagihanManager pelanggan={pelangganData} tagihan={validTagihanData} settings={settings} showToast={showToast} isAdmin={isAdmin} />}
+                            {activeTab === 'dashboard' && isAdmin && <Dashboard pelanggan={pelangganData} tagihan={tagihanData} pengeluaran={pengeluaranData} />}
+                            {activeTab === 'pelanggan' && <PelangganManager data={pelangganData} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
+                            {activeTab === 'tagihan' && <TagihanManager pelanggan={pelangganData} tagihan={tagihanData} settings={settings} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
                             {activeTab === 'pengeluaran' && isAdmin && <PengeluaranManager data={pengeluaranData} showToast={showToast} />}
-                            {activeTab === 'pelaporan' && isAdmin && <Pelaporan pelanggan={pelangganData} tagihan={validTagihanData} pengeluaran={pengeluaranData} settings={settings} />}
+                            {activeTab === 'pelaporan' && isAdmin && <Pelaporan pelanggan={pelangganData} tagihan={tagihanData} pengeluaran={pengeluaranData} settings={settings} />}
                             {activeTab === 'pengaturan' && isAdmin && <PengaturanManager settings={settings} adminUsers={adminUsers} showToast={showToast} />}
                         </main>
                     </div>
@@ -281,12 +278,11 @@
             const handleLogin = (e) => { 
                 e.preventDefault(); 
                 if(users.length === 0 && user === 'admin' && pass === 'admin123') { 
-                    onLogin({username: 'admin', role: 'Admin'}); showToast('Selamat Datang Admin!'); return; 
+                    onLogin({username: 'admin', role: 'Admin', wilayah: ''}); showToast('Selamat Datang Admin!'); return; 
                 }
                 const validUser = users.find(u => u.username === user && u.password === pass);
                 if(validUser) { 
-                    // Set default role if missing from old data
-                    const loggedUser = {...validUser, role: validUser.role || 'Admin'};
+                    const loggedUser = {...validUser, role: validUser.role || 'Admin', wilayah: validUser.wilayah || ''};
                     onLogin(loggedUser); 
                     showToast(`Selamat Datang ${loggedUser.role}!`); 
                 } 
@@ -317,16 +313,16 @@
             const currentMonth = new Date().toISOString().slice(0, 7);
             const pelangganAktif = pelanggan.filter(p=>p.status==='Aktif').length;
             
-            const tagihanBulanIni = tagihan.filter(t => t.periode === currentMonth);
+            const validTagihan = tagihan.filter(t => pelanggan.some(p => p.id === t.idPelanggan));
+            const tagihanBulanIni = validTagihan.filter(t => t.periode === currentMonth);
             const pemasukan = tagihanBulanIni.reduce((s, t) => s + getTerbayar(t), 0);
             const tunggakan = tagihanBulanIni.reduce((s, t) => s + getSisa(t), 0);
             
-            // Hitung Pengeluaran & Laba
             const pengeluaranBulanIni = pengeluaran.filter(k => k.tanggal.startsWith(currentMonth)).reduce((s, k) => s + Number(k.nominal), 0);
             const labaBersih = pemasukan - pengeluaranBulanIni;
 
             const last6Months = Array.from({length: 6}, (_, i) => { const d = new Date(); d.setMonth(d.getMonth() - i); return d.toISOString().slice(0, 7); }).reverse();
-            const chartData = last6Months.map(month => ({ label: formatBulanTahunSingkat(month), value: tagihan.filter(t => t.periode === month).reduce((s, t) => s + getTerbayar(t), 0) }));
+            const chartData = last6Months.map(month => ({ label: formatBulanTahunSingkat(month), value: validTagihan.filter(t => t.periode === month).reduce((s, t) => s + getTerbayar(t), 0) }));
             const maxVal = Math.max(...chartData.map(d => d.value), 100000);
 
             return (
@@ -356,7 +352,7 @@
         }
 
         // ==========================================
-        // BUKU KAS / PENGELUARAN (FITUR BARU)
+        // BUKU KAS / PENGELUARAN
         // ==========================================
         function PengeluaranManager({ data, showToast }) {
             const [modal, setModal] = useState(false); 
@@ -376,7 +372,6 @@
                 }
             };
 
-            // Urutkan dari yang terbaru
             const sortedData = [...data].sort((a,b) => new Date(b.tanggal) - new Date(a.tanggal));
 
             return (
@@ -413,21 +408,26 @@
         }
 
         // ==========================================
-        // MANAJEMEN PELANGGAN 
+        // MANAJEMEN PELANGGAN (DENGAN FILTER WILAYAH)
         // ==========================================
-        function PelangganManager({ data, showToast, isAdmin }) {
+        function PelangganManager({ data, showToast, isAdmin, currentUser }) {
             const [modal, setModal] = useState(false); const [editId, setEditId] = useState(null);
-            const [form, setForm] = useState({ no: '', nama: '', rt: '', rw: '', status: 'Aktif', hp: '' });
+            
+            const isPetugasLocked = !isAdmin && currentUser.wilayah;
+            const [filterWilayah, setFilterWilayah] = useState(isPetugasLocked ? currentUser.wilayah : 'Semua');
+            const uniqueWilayahs = ['Semua', ...new Set(data.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
+
+            const [form, setForm] = useState({ no: '', nama: '', wilayah: '', rt: '', rw: '', status: 'Aktif', hp: '' });
             const [search, setSearch] = useState(''); const [filterStatus, setFilterStatus] = useState('Semua'); const [sortBy, setSortBy] = useState('noPelanggan');
 
             const openModal = (p = null) => {
-                if(p) { setEditId(p.id); setForm({ no: p.noPelanggan, nama: p.nama, rt: p.rt, rw: p.rw, status: p.status, hp: p.noHp }); }
-                else { setEditId(null); setForm({ no: '', nama: '', rt: '', rw: '', status: 'Aktif', hp: '' }); }
+                if(p) { setEditId(p.id); setForm({ no: p.noPelanggan, nama: p.nama, wilayah: p.wilayah || '', rt: p.rt, rw: p.rw, status: p.status, hp: p.noHp }); }
+                else { setEditId(null); setForm({ no: '', nama: '', wilayah: isPetugasLocked ? currentUser.wilayah : '', rt: '', rw: '', status: 'Aktif', hp: '' }); }
                 setModal(true);
             };
 
             const simpan = async (e) => {
-                e.preventDefault(); const payload = { noPelanggan: form.no, nama: form.nama, rt: form.rt, rw: form.rw, status: form.status, noHp: form.hp };
+                e.preventDefault(); const payload = { noPelanggan: form.no, nama: form.nama, wilayah: form.wilayah, rt: form.rt, rw: form.rw, status: form.status, noHp: form.hp };
                 try { if (editId) await DB_PUSAT.collection('pelanggan').doc(editId).update(payload); else await DB_PUSAT.collection('pelanggan').add(payload);
                 setModal(false); showToast('Data Pelanggan Tersimpan'); } catch(err) { alert(err.message); }
             };
@@ -445,14 +445,20 @@
                 reader.onload = async (event) => {
                     const text = event.target.result; const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
                     if (rows.length < 2) return alert('Format file kosong atau salah.');
-                    const delimiter = rows[0].includes(';') ? ';' : ','; let successCount = 0;
+                    const delimiter = rows[0].includes(';') ? ';' : ','; 
+                    const isNewFormat = rows[0].toLowerCase().includes('wilayah');
+                    let successCount = 0;
+                    
                     for (let i = 1; i < rows.length; i++) {
                         const cols = rows[i].split(delimiter).map(c => c.replace(/^"|"$/g, '').trim());
                         if (cols.length >= 2) {
-                            await DB_PUSAT.collection('pelanggan').add({
-                                noPelanggan: cols[0] || '', nama: cols[1] || '', rt: cols[2] || '', rw: cols[3] || '',
-                                status: (cols[4] && cols[4].toLowerCase().includes('tidak')) ? 'Tidak Aktif' : 'Aktif', noHp: cols[5] || ''
-                            }); successCount++;
+                            let payload = {};
+                            if (isNewFormat) {
+                                payload = { noPelanggan: cols[0] || '', nama: cols[1] || '', wilayah: cols[2] || '', rt: cols[3] || '', rw: cols[4] || '', status: (cols[5] && cols[5].toLowerCase().includes('tidak')) ? 'Tidak Aktif' : 'Aktif', noHp: cols[6] || '' };
+                            } else {
+                                payload = { noPelanggan: cols[0] || '', nama: cols[1] || '', wilayah: '', rt: cols[2] || '', rw: cols[3] || '', status: (cols[4] && cols[4].toLowerCase().includes('tidak')) ? 'Tidak Aktif' : 'Aktif', noHp: cols[5] || '' };
+                            }
+                            await DB_PUSAT.collection('pelanggan').add(payload); successCount++;
                         }
                     }
                     showToast(`${successCount} Pelanggan Diimport!`); e.target.value = null;
@@ -460,15 +466,20 @@
             };
 
             const downloadCSV = () => {
-                let csvContent = "NoPelanggan;Nama;RT;RW;Status;NoHp\n";
-                filteredData.forEach(p => { csvContent += `"${p.noPelanggan}";"${p.nama}";"${p.rt}";"${p.rw}";"${p.status}";"${p.noHp}"\n`; });
+                let csvContent = "NoPelanggan;Nama;Wilayah;RT;RW;Status;NoHp\n";
+                filteredData.forEach(p => { csvContent += `"${p.noPelanggan}";"${p.nama}";"${p.wilayah || ''}";"${p.rt}";"${p.rw}";"${p.status}";"${p.noHp}"\n`; });
                 const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob);
                 const link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "Data_Pelanggan.csv");
                 document.body.appendChild(link); link.click(); document.body.removeChild(link);
             };
 
-            const filteredData = data.filter(p => filterStatus === 'Semua' || p.status === filterStatus).filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
+            const filteredData = data
+                .filter(p => filterStatus === 'Semua' || p.status === filterStatus)
+                .filter(p => filterWilayah === 'Semua' || p.wilayah === filterWilayah)
+                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
+                .sort((a, b) => {
                     if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
+                    if (sortBy === 'wilayah') return (a.wilayah || '').localeCompare(b.wilayah || '', undefined, {numeric: true, sensitivity: 'base'});
                     if (sortBy === 'rtRw') return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true, sensitivity: 'base'}); return 0;
                 });
 
@@ -477,15 +488,18 @@
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
                         <h2 className="text-2xl font-bold text-gray-800">Pelanggan</h2>
                         <div className="flex flex-wrap gap-2 w-full md:w-auto items-center">
+                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800" disabled={isPetugasLocked}>
+                                {isPetugasLocked ? <option value={currentUser.wilayah}>{currentUser.wilayah}</option> : uniqueWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? 'Semua Wilayah' : w}</option>)}
+                            </select>
                             <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
                                 <option value="Semua">Semua Status</option><option value="Aktif">Aktif</option><option value="Tidak Aktif">Tidak Aktif</option>
                             </select>
-                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
-                                <option value="noPelanggan">Urut: No. Pelanggan</option><option value="rtRw">Urut: RT / RW</option>
+                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white hidden md:inline-block">
+                                <option value="noPelanggan">Urut: No. Pelanggan</option><option value="wilayah">Urut: Wilayah</option><option value="rtRw">Urut: RT / RW</option>
                             </select>
-                            <div className="relative flex-1 md:w-48"><i className="fas fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input type="text" placeholder="Cari Nama/No..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg outline-none text-sm"/></div>
+                            <div className="relative flex-1 md:w-40"><i className="fas fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg outline-none text-sm"/></div>
                             
-                            {isAdmin && <button onClick={()=>openModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm shadow-sm"><i className="fas fa-user-plus md:mr-2"></i> <span className="hidden md:inline">Tambah</span></button>}
+                            <button onClick={()=>openModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm shadow-sm"><i className="fas fa-user-plus md:mr-2"></i> <span className="hidden md:inline">Tambah</span></button>
                             
                             {isAdmin && <div className="flex bg-white rounded-lg p-1 border shadow-sm">
                                 <div className="relative overflow-hidden inline-block border-r pr-1"><input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" title="Import CSV" /><button className="text-green-600 hover:bg-green-50 px-3 py-1.5 rounded text-sm flex items-center pointer-events-none"><i className="fas fa-file-import md:mr-2"></i> <span className="hidden md:inline">Import</span></button></div>
@@ -495,14 +509,17 @@
                     </div>
                     
                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-                        <table className="w-full text-sm text-left whitespace-nowrap"><thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">No.</th><th className="p-4">Nama</th><th className="p-4">RT/RW</th><th className="p-4">No HP</th><th className="p-4">Status</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">
+                        <table className="w-full text-sm text-left whitespace-nowrap"><thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">No.</th><th className="p-4">Nama</th><th className="p-4">Wilayah</th><th className="p-4">RT/RW</th><th className="p-4">No HP</th><th className="p-4">Status</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">
                                 {filteredData.map(p => (
-                                    <tr key={p.id} className="hover:bg-gray-50"><td className="p-4 font-medium">{p.noPelanggan}</td><td className="p-4">{p.nama}</td><td className="p-4">{p.rt}/{p.rw}</td><td className="p-4">{p.noHp}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-semibold ${p.status==='Aktif'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{p.status}</span></td><td className="p-4 text-center space-x-3">
-                                        <button onClick={()=>openModal(p)} className="text-blue-500 hover:text-blue-700 p-1"><i className="fas fa-edit text-base"></i></button>
-                                        {isAdmin && <button onClick={()=>hapus(p.id)} className="text-red-500 hover:text-red-700 p-1"><i className="fas fa-trash text-base"></i></button>}
-                                    </td></tr>
+                                    <tr key={p.id} className="hover:bg-gray-50">
+                                        <td className="p-4 font-medium">{p.noPelanggan}</td><td className="p-4">{p.nama}</td><td className="p-4">{p.wilayah || '-'}</td><td className="p-4">{p.rt}/{p.rw}</td><td className="p-4">{p.noHp}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-semibold ${p.status==='Aktif'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{p.status}</span></td>
+                                        <td className="p-4 text-center space-x-3">
+                                            <button onClick={()=>openModal(p)} className="text-blue-500 hover:text-blue-700 p-1"><i className="fas fa-edit text-base"></i></button>
+                                            {isAdmin && <button onClick={()=>hapus(p.id)} className="text-red-500 hover:text-red-700 p-1"><i className="fas fa-trash text-base"></i></button>}
+                                        </td>
+                                    </tr>
                                 ))}
-                                {filteredData.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
+                                {filteredData.length === 0 && <tr><td colSpan="7" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
                         </tbody></table>
                     </div>
 
@@ -513,6 +530,7 @@
                                 <div className="space-y-4 mb-6">
                                     <div className="grid grid-cols-2 gap-4"><div><label className="text-xs font-medium text-gray-600 block mb-1">No Pelanggan</label><input value={form.no} onChange={e=>setForm({...form, no:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div><div><label className="text-xs font-medium text-gray-600 block mb-1">No HP</label><input value={form.hp} onChange={e=>setForm({...form, hp:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none"/></div></div>
                                     <div><label className="text-xs font-medium text-gray-600 block mb-1">Nama Lengkap</label><input value={form.nama} onChange={e=>setForm({...form, nama:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
+                                    <div><label className="text-xs font-medium text-gray-600 block mb-1">Wilayah / Blok / Dusun</label><input value={form.wilayah} onChange={e=>setForm({...form, wilayah:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Cth: Dusun Krajan / Blok A" disabled={isPetugasLocked} /></div>
                                     <div className="grid grid-cols-3 gap-4"><div><label className="text-xs font-medium text-gray-600 block mb-1">RT</label><input value={form.rt} onChange={e=>setForm({...form, rt:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" /></div><div><label className="text-xs font-medium text-gray-600 block mb-1">RW</label><input value={form.rw} onChange={e=>setForm({...form, rw:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" /></div><div><label className="text-xs font-medium text-gray-600 block mb-1">Status</label><select value={form.status} onChange={e=>setForm({...form, status:e.target.value})} className="border p-2 w-full rounded outline-none"><option>Aktif</option><option>Tidak Aktif</option></select></div></div>
                                 </div>
                                 <div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-5 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Simpan</button></div>
@@ -524,10 +542,15 @@
         }
 
         // ==========================================
-        // MANAJEMEN TAGIHAN (DENGAN TUNAI & KEMBALIAN)
+        // MANAJEMEN TAGIHAN (WILAYAH & KEMBALIAN)
         // ==========================================
-        function TagihanManager({ pelanggan, tagihan, settings, showToast, isAdmin }) {
+        function TagihanManager({ pelanggan, tagihan, settings, showToast, isAdmin, currentUser }) {
             const [periode, setPeriode] = useState(new Date().toISOString().slice(0, 7));
+            
+            const isPetugasLocked = !isAdmin && currentUser.wilayah;
+            const [filterWilayah, setFilterWilayah] = useState(isPetugasLocked ? currentUser.wilayah : 'Semua');
+            const uniqueWilayahs = ['Semua', ...new Set(pelanggan.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
+
             const [search, setSearch] = useState(''); const [filterStatus, setFilterStatus] = useState('Semua'); const [sortBy, setSortBy] = useState('noPelanggan');
             const [modal, setModal] = useState(false); const [selP, setSelP] = useState(null); const [existT, setExistT] = useState(null);
             const [mAwal, setMAwal] = useState(''); const [mAkhir, setMAkhir] = useState('');
@@ -536,9 +559,30 @@
             const kubik = Math.max(0, Number(mAkhir) - Number(mAwal));
             const totalHitung = (kubik * settings.tarif) + settings.beban;
 
-            const summaryTotal = tagihan.filter(t => t.periode === periode).reduce((s, t) => s + t.total, 0);
-            const summaryLunas = tagihan.filter(t => t.periode === periode).reduce((s, t) => s + getTerbayar(t), 0);
-            const summaryBelum = tagihan.filter(t => t.periode === periode).reduce((s, t) => s + getSisa(t), 0);
+            const filteredPelanggan = pelanggan
+                .filter(p => p.status === 'Aktif' || tagihan.some(t => t.idPelanggan === p.id && t.periode === periode))
+                .filter(p => filterWilayah === 'Semua' || p.wilayah === filterWilayah)
+                .filter(p => {
+                    const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
+                    if(filterStatus === 'Semua') return true;
+                    const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
+                    if(filterStatus === 'LUNAS') return totalHutang <= 0 && t;
+                    if(filterStatus === 'BELUM') return totalHutang > 0 && (!t || t.status === 'Belum Terbayar');
+                    if(filterStatus === 'NYICIL') return t && getTerbayar(t) > 0 && getSisa(t) > 0;
+                    return true;
+                })
+                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
+                .sort((a, b) => {
+                    if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
+                    if (sortBy === 'wilayah') return (a.wilayah || '').localeCompare(b.wilayah || '', undefined, {numeric: true, sensitivity: 'base'});
+                    if (sortBy === 'rtRw') return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true, sensitivity: 'base'}); return 0;
+                });
+
+            // Summary metrics specifically for the currently filtered view
+            const validTagihanForSummary = tagihan.filter(t => t.periode === periode && filteredPelanggan.some(p => p.id === t.idPelanggan));
+            const summaryTotal = validTagihanForSummary.reduce((s, t) => s + t.total, 0);
+            const summaryLunas = validTagihanForSummary.reduce((s, t) => s + getTerbayar(t), 0);
+            const summaryBelum = validTagihanForSummary.reduce((s, t) => s + getSisa(t), 0);
 
             const openTagihan = (p) => {
                 const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
@@ -569,7 +613,7 @@
             const simpanPayGlobal = async (e) => {
                 e.preventDefault(); 
                 let uangTersedia = Number(payNominal); 
-                const uangTersediaAsli = uangTersedia; // Simpan untuk dicetak di struk
+                const uangTersediaAsli = uangTersedia; 
                 if(uangTersedia < 0) return alert("Nominal tidak valid!");
                 
                 try {
@@ -579,8 +623,6 @@
                     const sisaCurrent = currentTagihan ? getSisa(currentTagihan) : 0;
                     const totalHutangKeseluruhan = sisaCurrent + unpaidLain.reduce((s,t)=>s+getSisa(t), 0);
                     const kembalianAsli = Math.max(0, uangTersediaAsli - totalHutangKeseluruhan);
-
-                    // Tentukan tagihan mana yang akan disisipi catatan 'uangDiserahkan' & 'kembalian' untuk struk
                     const targetTagihanId = currentTagihan ? currentTagihan.id : (unpaidLain.length > 0 ? unpaidLain[unpaidLain.length-1].id : null);
 
                     if (currentTagihan && uangTersedia > 0) {
@@ -594,7 +636,6 @@
                             });
                             uangTersedia -= bayarSini;
                         } else if (currentTagihan.id === targetTagihanId) {
-                            // Update info struk walau sudah lunas jika dipaksa save
                             await DB_PUSAT.collection('tagihan').doc(currentTagihan.id).update({ uangDiserahkan: uangTersediaAsli, kembalian: kembalianAsli });
                         }
                     }
@@ -636,7 +677,7 @@
                 
                 const html = `
                     <div class="text-center"><div class="title" style="font-size: 14px;">${settings.appName}</div>${settings.appSubtitle ? `<div class="bold" style="font-size: 14px;">${settings.appSubtitle}</div>` : ''}<div style="font-size: 10px;">DESA MENONGO-SUKODADI-LAMONGAN</div></div><hr />
-                    <table style="margin-bottom: 5px;"><tr><td style="width: 50px;">NO</td><td>: ${p.noPelanggan}</td></tr><tr><td>NAMA</td><td>: ${p.nama}</td></tr><tr><td>PERIODE</td><td>: ${formatBulanTahunSingkat(t.periode)}</td></tr></table><hr />
+                    <table style="margin-bottom: 5px;"><tr><td style="width: 50px;">NO</td><td>: ${p.noPelanggan}</td></tr><tr><td>NAMA</td><td>: ${p.nama}</td></tr>${p.wilayah ? `<tr><td>WILAYAH</td><td>: ${p.wilayah}</td></tr>` : ''}<tr><td>PERIODE</td><td>: ${formatBulanTahunSingkat(t.periode)}</td></tr></table><hr />
                     <table><tr><td>M. AWAL</td><td class="text-right">${t.meterAwal}</td></tr><tr><td>M. AKHIR</td><td class="text-right">${t.meterAkhir}</td></tr><tr><td>PEMAKAIAN</td><td class="text-right">${pemakaian} m3</td></tr></table><hr />
                     <table><tr><td>TAGIHAN BLN INI</td><td class="text-right">${formatRp(t.total)}</td></tr><tr><td>TUNGGAKAN LALU</td><td class="text-right">${formatRp(tunggakanLalu)}</td></tr><tr class="bold"><td>TOTAL TAGIHAN</td><td class="text-right">${formatRp(totalHarusDibayar)}</td></tr></table><hr />
                     <table>
@@ -661,7 +702,7 @@ ${settings.appSubtitle ? alignCenter(settings.appSubtitle.toUpperCase()) + '\n' 
 --------------------------------
 NO     : ${p.noPelanggan}
 NAMA   : ${p.nama}
-PERIODE: ${formatBulanTahunSingkat(t.periode)}
+${p.wilayah ? `WILAYAH: ${p.wilayah}\n` : ''}PERIODE: ${formatBulanTahunSingkat(t.periode)}
 --------------------------------
 ${alignLeftRight('M. AWAL', t.meterAwal)}
 ${alignLeftRight('M. AKHIR', t.meterAkhir)}
@@ -688,35 +729,25 @@ ${alignCenter('PENGURUS')}
 
             const handleCetak = (p, t) => { const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768; if (isMobile) cetakStrukHP(p, t); else cetakStrukPC(p, t); };
 
-            const filteredPelanggan = pelanggan.filter(p => p.status === 'Aktif' || tagihan.some(t => t.idPelanggan === p.id && t.periode === periode)).filter(p => {
-                    const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
-                    if(filterStatus === 'Semua') return true;
-                    const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
-                    if(filterStatus === 'LUNAS') return totalHutang <= 0 && t;
-                    if(filterStatus === 'BELUM') return totalHutang > 0 && (!t || t.status === 'Belum Terbayar');
-                    if(filterStatus === 'NYICIL') return t && getTerbayar(t) > 0 && getSisa(t) > 0;
-                    return true;
-                }).filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
-                    if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
-                    if (sortBy === 'rtRw') return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true, sensitivity: 'base'}); return 0;
-                });
-
             return (
                 <div className="space-y-4">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
                         <h2 className="text-2xl font-bold text-gray-800">Tagihan & Pembayaran</h2>
                         <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
+                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm" disabled={isPetugasLocked}>
+                                {isPetugasLocked ? <option value={currentUser.wilayah}>{currentUser.wilayah}</option> : uniqueWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? 'Semua Wilayah' : w}</option>)}
+                            </select>
                             <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm"><option value="Semua">Semua Tagihan</option><option value="BELUM">Belum Lunas</option><option value="NYICIL">Nyicil (Bln Ini)</option><option value="LUNAS">Lunas Total</option></select>
-                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm"><option value="noPelanggan">Urut: No. Pelanggan</option><option value="rtRw">Urut: RT / RW</option></select>
+                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm hidden md:inline-block"><option value="noPelanggan">Urut: No. Pelanggan</option><option value="wilayah">Urut: Wilayah</option><option value="rtRw">Urut: RT / RW</option></select>
                             <div className="flex items-center space-x-2 bg-white px-3 py-1.5 border rounded-lg shadow-sm"><span className="text-sm text-gray-600">Periode:</span><input type="month" value={periode} onChange={e=>setPeriode(e.target.value)} className="outline-none text-sm font-bold text-blue-600 bg-transparent"/></div>
-                            <div className="relative flex-1 md:w-48"><i className="fas fa-search absolute left-3 top-2.5 text-gray-400 text-sm"></i><input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 border rounded-lg outline-none text-sm shadow-sm"/></div>
+                            <div className="relative flex-1 md:w-40"><i className="fas fa-search absolute left-3 top-2.5 text-gray-400 text-sm"></i><input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 border rounded-lg outline-none text-sm shadow-sm"/></div>
                         </div>
                     </div>
 
                     {/* Hanya Admin yang bisa melihat ringkasan uang tagihan */}
                     {isAdmin && (
                         <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4">
-                            <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Total Tagihan Bln Ini</p><p className="text-sm md:text-lg font-bold text-blue-900">{formatRp(summaryTotal)}</p></div>
+                            <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Tagihan Bln Ini ({filterWilayah})</p><p className="text-sm md:text-lg font-bold text-blue-900">{formatRp(summaryTotal)}</p></div>
                             <div className="bg-green-50 border border-green-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-green-600 font-bold uppercase mb-1">Uang Masuk Bln Ini</p><p className="text-sm md:text-lg font-bold text-green-900">{formatRp(summaryLunas)}</p></div>
                             <div className="bg-red-50 border border-red-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-red-600 font-bold uppercase mb-1">Sisa Tagihan Bln Ini</p><p className="text-sm md:text-lg font-bold text-red-900">{formatRp(summaryBelum)}</p></div>
                         </div>
@@ -727,10 +758,10 @@ ${alignCenter('PENGURUS')}
                                 {filteredPelanggan.map(p => {
                                     const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
                                     const totalHutangKeseluruhan = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
-                                    if(!t) return <tr key={p.id} className="hover:bg-gray-50"><td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan}</div></td><td colSpan="6" className="p-4 text-center"><button onClick={()=>openTagihan(p)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-medium shadow-sm"><i className="fas fa-plus mr-1"></i> Buat Tagihan</button></td></tr>;
+                                    if(!t) return <tr key={p.id} className="hover:bg-gray-50"><td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan} {p.wilayah ? `• ${p.wilayah}` : ''}</div></td><td colSpan="6" className="p-4 text-center"><button onClick={()=>openTagihan(p)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-medium shadow-sm"><i className="fas fa-plus mr-1"></i> Buat Tagihan</button></td></tr>;
                                     return (
                                         <tr key={p.id} className="hover:bg-gray-50">
-                                            <td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan}</div></td><td className="p-4">{t.meterAwal}</td><td className="p-4">{t.meterAkhir}</td><td className="p-4 font-bold text-gray-700">{formatRp(t.total)}</td><td className="p-4 font-bold text-gray-500">{formatRp(getSisa(t))}</td><td className={`p-4 font-bold ${totalHutangKeseluruhan > 0 ? 'text-red-600 bg-red-50' : 'text-green-600'}`}>{totalHutangKeseluruhan <= 0 ? 'LUNAS' : formatRp(totalHutangKeseluruhan)}</td>
+                                            <td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan} {p.wilayah ? `• ${p.wilayah}` : ''}</div></td><td className="p-4">{t.meterAwal}</td><td className="p-4">{t.meterAkhir}</td><td className="p-4 font-bold text-gray-700">{formatRp(t.total)}</td><td className="p-4 font-bold text-gray-500">{formatRp(getSisa(t))}</td><td className={`p-4 font-bold ${totalHutangKeseluruhan > 0 ? 'text-red-600 bg-red-50' : 'text-green-600'}`}>{totalHutangKeseluruhan <= 0 ? 'LUNAS' : formatRp(totalHutangKeseluruhan)}</td>
                                             <td className="p-4 text-center space-x-2">
                                                 <button onClick={()=>handleCetak(p,t)} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border shadow-sm" title="Cetak Struk"><i className="fas fa-print"></i></button>
                                                 {isAdmin && <button onClick={()=>copyWA(p,t)} className="p-2 bg-green-50 hover:bg-green-100 text-green-600 rounded border border-green-200 shadow-sm" title="Copy WA"><i className="fab fa-whatsapp"></i></button>}
@@ -792,10 +823,10 @@ ${alignCenter('PENGURUS')}
             const [formSettings, setFormSettings] = useState(settings); const [usersList, setUsersList] = useState(adminUsers);
             const handleLogoUpload = (e) => { const file = e.target.files[0]; if(file) { const reader = new FileReader(); reader.onload = (ev) => { setFormSettings({...formSettings, logo: ev.target.result}); }; reader.readAsDataURL(file); } };
             const simpanPengaturan = async (e) => { e.preventDefault(); try { await DB_PUSAT.collection('pengaturan').doc('konfigurasi').set({ appName: formSettings.appName, appSubtitle: formSettings.appSubtitle || '', tarif: Number(formSettings.tarif), beban: Number(formSettings.beban), logo: formSettings.logo }); showToast("Pengaturan Aplikasi Berhasil Disimpan!"); } catch(err) { alert(err.message); } };
-            const tambahUser = () => setUsersList([...usersList, { id: Date.now().toString(), username: '', password: '', role: 'Petugas' }]);
+            const tambahUser = () => setUsersList([...usersList, { id: Date.now().toString(), username: '', password: '', role: 'Petugas', wilayah: '' }]);
             const updateUser = (id, field, value) => setUsersList(usersList.map(u => u.id === id ? { ...u, [field]: value } : u));
-            const hapusUser = (id) => { if(usersList.length <= 1) return alert("Minimal harus ada 1 akun!"); setUsersList(usersList.filter(u => u.id !== id)); };
-            const simpanUsers = async () => { if(usersList.some(u => !u.username.trim() || !u.password.trim())) return alert("Username dan Password tidak boleh kosong!"); try { await DB_PUSAT.collection('pengaturan').doc('users').set({ list: usersList }); showToast("Data Akun Berhasil Disimpan!"); } catch(err) { alert(err.message); } };
+            const hapusUser = (id) => { if(usersList.length <= 1) return alert("Minimal harus ada 1 akun Admin!"); setUsersList(usersList.filter(u => u.id !== id)); };
+            const simpanUsers = async () => { if(usersList.some(u => !u.username.trim() || !u.password.trim())) return alert("Username dan Password tidak boleh kosong!"); try { await DB_PUSAT.collection('pengaturan').doc('users').set({ list: usersList }); showToast("Data Akun Admin Berhasil Disimpan!"); } catch(err) { alert(err.message); } };
 
             return (
                 <div className="space-y-8 max-w-4xl">
@@ -812,18 +843,21 @@ ${alignCenter('PENGURUS')}
                         <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow font-medium"><i className="fas fa-save mr-2"></i> Simpan Pengaturan</button>
                     </form>
                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                        <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-gray-700"><i className="fas fa-users-cog mr-2"></i> Akun Login (Hak Akses)</h3><button onClick={tambahUser} className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded border"><i className="fas fa-plus mr-1"></i> Tambah User</button></div>
-                        <p className="text-xs text-gray-500 mb-4"><b>Admin</b> memiliki akses penuh. <b>Petugas</b> hanya bisa mengisi meteran pelanggan dan tidak bisa melihat uang total/laporan.</p>
+                        <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-gray-700"><i className="fas fa-users-cog mr-2"></i> Akun Login (Hak Akses & Wilayah)</h3><button onClick={tambahUser} className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded border"><i className="fas fa-plus mr-1"></i> Tambah User</button></div>
+                        <p className="text-xs text-gray-500 mb-4"><b>Admin</b> memiliki akses penuh. <b>Petugas</b> hanya bisa mengisi meteran pelanggan dan bisa dikunci ke <b>Wilayah tertentu</b>.</p>
                         <div className="space-y-3 mb-6">
                             {usersList.map((u, i) => (
-                                <div key={u.id} className="flex flex-wrap md:flex-nowrap gap-3 items-center bg-gray-50 p-2 rounded">
+                                <div key={u.id} className="flex flex-wrap md:flex-nowrap gap-2 items-center bg-gray-50 p-2 rounded">
                                     <span className="w-6 text-center text-sm font-bold text-gray-400">{i+1}.</span>
-                                    <input type="text" placeholder="Username" value={u.username} onChange={e=>updateUser(u.id, 'username', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm"/>
-                                    <input type="text" placeholder="Password" value={u.password} onChange={e=>updateUser(u.id, 'password', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm"/>
-                                    <select value={u.role || 'Admin'} onChange={e=>updateUser(u.id, 'role', e.target.value)} className="border p-2 rounded outline-none text-sm bg-white font-bold">
+                                    <input type="text" placeholder="Username" value={u.username} onChange={e=>updateUser(u.id, 'username', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[100px]"/>
+                                    <input type="text" placeholder="Password" value={u.password} onChange={e=>updateUser(u.id, 'password', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[100px]"/>
+                                    <select value={u.role || 'Admin'} onChange={e=>updateUser(u.id, 'role', e.target.value)} className="border p-2 rounded outline-none text-sm bg-white font-bold w-24">
                                         <option value="Admin">Admin</option>
                                         <option value="Petugas">Petugas</option>
                                     </select>
+                                    {u.role === 'Petugas' && (
+                                        <input type="text" placeholder="Kunci Wilayah (Kosong=Bisa Semua)" value={u.wilayah || ''} onChange={e=>updateUser(u.id, 'wilayah', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[120px]"/>
+                                    )}
                                     <button onClick={()=>hapusUser(u.id)} className="text-red-500 hover:bg-red-100 p-2 rounded"><i className="fas fa-trash"></i></button>
                                 </div>
                             ))}
@@ -842,27 +876,34 @@ ${alignCenter('PENGURUS')}
             const [filterPeriode, setFilterPeriode] = useState(new Date().toISOString().slice(0, 7));
             const [filterTahun, setFilterTahun] = useState(new Date().getFullYear().toString());
             const [selectedPelangganId, setSelectedPelangganId] = useState('');
+            const [filterWilayah, setFilterWilayah] = useState('Semua');
+
+            const uniqueWilayahs = ['Semua', ...new Set(pelanggan.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
+            const pelangganFiltered = pelanggan.filter(p => filterWilayah === 'Semua' || p.wilayah === filterWilayah);
+            const pelangganIds = new Set(pelangganFiltered.map(p => p.id));
 
             useEffect(() => {
-                if (pelanggan.length > 0 && !selectedPelangganId) setSelectedPelangganId(pelanggan[0].id);
-            }, [pelanggan, selectedPelangganId]);
+                if (pelangganFiltered.length > 0 && (!selectedPelangganId || !pelangganIds.has(selectedPelangganId))) {
+                    setSelectedPelangganId(pelangganFiltered[0].id);
+                }
+            }, [pelangganFiltered, selectedPelangganId]);
 
             const getName = (id) => pelanggan.find(p => p.id === id)?.nama || 'Unknown';
             const getNo = (id) => pelanggan.find(p => p.id === id)?.noPelanggan || '-';
 
             let reportHtml = ""; let reportTitle = "";
+            const titleWilayah = filterWilayah !== 'Semua' ? ` (Wilayah: ${filterWilayah})` : '';
 
             if (reportType === 'bulanan') {
-                reportTitle = `Laporan Keuangan Bulanan - ${formatBulanTahunLengkap(filterPeriode)}`;
-                const tags = tagihan.filter(t => t.periode === filterPeriode);
+                reportTitle = `Laporan Keuangan Bulanan${titleWilayah} - ${formatBulanTahunLengkap(filterPeriode)}`;
+                const tags = tagihan.filter(t => t.periode === filterPeriode && pelangganIds.has(t.idPelanggan));
                 const pemasukan = tags.reduce((s,t)=>s+getTerbayar(t),0);
                 const pengeluaranBulanIni = pengeluaran.filter(k => k.tanggal.startsWith(filterPeriode)).reduce((s, k) => s + Number(k.nominal), 0);
                 
                 reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div>
                     <p>Total Tagihan Air: <strong>${formatRp(tags.reduce((s,t)=>s+t.total,0))}</strong></p>
                     <p>Total Uang Masuk (Pemasukan): <strong style="color:green">${formatRp(pemasukan)}</strong></p>
-                    <p>Total Belanja (Pengeluaran): <strong style="color:red">${formatRp(pengeluaranBulanIni)}</strong></p>
-                    <p>Laba Bersih Bulan Ini: <strong style="color:blue">${formatRp(pemasukan - pengeluaranBulanIni)}</strong></p>
+                    ${filterWilayah === 'Semua' ? `<p>Total Belanja (Pengeluaran): <strong style="color:red">${formatRp(pengeluaranBulanIni)}</strong></p><p>Laba Bersih Bulan Ini: <strong style="color:blue">${formatRp(pemasukan - pengeluaranBulanIni)}</strong></p>` : ''}
                     <br><h4>Rincian Tagihan Air</h4>
                     <table><thead><tr><th>No</th><th>Nama</th><th>Tagihan Bln Ini</th><th>Tunggakan Lalu</th><th>Total Dibayar</th><th>Sisa Seluruh Tunggakan</th></tr></thead><tbody>
                     ${tags.map(t => {
@@ -872,26 +913,26 @@ ${alignCenter('PENGURUS')}
                     }).join('')}
                     ${tags.length===0?'<tr><td colspan="6" class="text-center">Tidak ada data</td></tr>':''}</tbody></table>`;
             } else if (reportType === 'tahunan') {
-                reportTitle = `Laporan Pendapatan Tahunan - ${filterTahun}`;
+                reportTitle = `Laporan Pendapatan Tahunan${titleWilayah} - ${filterTahun}`;
                 const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
                 const data = months.map(m => {
-                    const tags = tagihan.filter(t => t.periode === `${filterTahun}-${m}`);
-                    const pengeluaranBln = pengeluaran.filter(k => k.tanggal.startsWith(`${filterTahun}-${m}`)).reduce((s, k) => s + Number(k.nominal), 0);
-                    return { bulan: m, total: tags.reduce((s,t)=>s+t.total,0), lunas: tags.reduce((s,t)=>s+getTerbayar(t),0), pengeluaran: pengeluaranBln, tunggak: tags.reduce((s,t)=>s+getSisa(t),0) };
+                    const tags = tagihan.filter(t => t.periode === `${filterTahun}-${m}` && pelangganIds.has(t.idPelanggan));
+                    const pengeluaranBln = filterWilayah === 'Semua' ? pengeluaran.filter(k => k.tanggal.startsWith(`${filterTahun}-${m}`)).reduce((s, k) => s + Number(k.nominal), 0) : 0;
+                    return { bulan: m, total: tags.reduce((s,t)=>s+t.total,0), lunas: tags.reduce((s,t)=>s+getTerbayar(t),0), pengeluaran: pengeluaranBln, tunggak: tags.reduce((s,t)=>s+getSisa(t),0), totalP: tags.length };
                 });
-                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><table><thead><tr><th>Bulan</th><th>Total Tagihan</th><th>Pemasukan Air</th><th>Pengeluaran Kas</th><th>Laba Bersih</th><th>Sisa Tunggakan</th></tr></thead><tbody>
-                    ${data.map(m => `<tr><td class="text-center">${m.bulan}-${filterTahun}</td><td class="text-right">${formatRp(m.total)}</td><td class="text-right" style="color:green">${formatRp(m.lunas)}</td><td class="text-right" style="color:red">${formatRp(m.pengeluaran)}</td><td class="text-right font-bold text-blue-800">${formatRp(m.lunas - m.pengeluaran)}</td><td class="text-right">${formatRp(m.tunggak)}</td></tr>`).join('')}
-                    </tbody><tfoot><tr style="font-weight:bold;background:#eee;"><td class="text-center">TOTAL KESELURUHAN</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.total,0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.lunas,0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.pengeluaran,0))}</td><td class="text-right text-blue-900">${formatRp(data.reduce((s,m)=>s+(m.lunas-m.pengeluaran),0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.tunggak,0))}</td></tr></tfoot></table>`;
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><table><thead><tr><th>Bulan</th><th>Total Tagihan</th><th>Pemasukan Air</th>${filterWilayah==='Semua'?'<th>Pengeluaran Kas</th><th>Laba Bersih</th>':''}<th>Sisa Tunggakan</th></tr></thead><tbody>
+                    ${data.map(m => `<tr><td class="text-center">${m.bulan}-${filterTahun}</td><td class="text-right">${formatRp(m.total)}</td><td class="text-right" style="color:green">${formatRp(m.lunas)}</td>${filterWilayah==='Semua'?`<td class="text-right" style="color:red">${formatRp(m.pengeluaran)}</td><td class="text-right font-bold text-blue-800">${formatRp(m.lunas - m.pengeluaran)}</td>`:''}<td class="text-right">${formatRp(m.tunggak)}</td></tr>`).join('')}
+                    </tbody><tfoot><tr style="font-weight:bold;background:#eee;"><td class="text-center">TOTAL KESELURUHAN</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.total,0))}</td><td class="text-right">${formatRp(data.reduce((s,m)=>s+m.lunas,0))}</td>${filterWilayah==='Semua'?`<td class="text-right">${formatRp(data.reduce((s,m)=>s+m.pengeluaran,0))}</td><td class="text-right text-blue-900">${formatRp(data.reduce((s,m)=>s+(m.lunas-m.pengeluaran),0))}</td>`:''}<td class="text-right">${formatRp(data.reduce((s,m)=>s+m.tunggak,0))}</td></tr></tfoot></table>`;
             } else if (reportType === 'tunggakan_bulan') {
-                reportTitle = `Laporan Tunggakan Perbulan - ${formatBulanTahunLengkap(filterPeriode)}`;
-                const tags = tagihan.filter(t => t.periode === filterPeriode && getSisa(t) > 0);
+                reportTitle = `Laporan Tunggakan Perbulan${titleWilayah} - ${formatBulanTahunLengkap(filterPeriode)}`;
+                const tags = tagihan.filter(t => t.periode === filterPeriode && getSisa(t) > 0 && pelangganIds.has(t.idPelanggan));
                 reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><p>Total Sisa Tunggakan Bulan Ini: <strong style="color:red">${formatRp(tags.reduce((s,t)=>s+getSisa(t),0))}</strong></p>
                     <table><thead><tr><th>No</th><th>Nama</th><th>Total Tagihan</th><th>Sudah Dibayar</th><th>Sisa Tunggakan</th></tr></thead><tbody>
                     ${tags.map(t => `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right font-bold" style="color:red">${formatRp(getSisa(t))}</td></tr>`).join('')}
                     ${tags.length===0?'<tr><td colspan="5" class="text-center">Aman, tidak ada tunggakan</td></tr>':''}</tbody></table>`;
             } else if (reportType === 'tunggakan_tahun') {
-                reportTitle = `Laporan Tunggakan Keseluruhan`;
-                const grouped = tagihan.filter(t => getSisa(t) > 0).reduce((acc, t) => { 
+                reportTitle = `Laporan Tunggakan Keseluruhan${titleWilayah}`;
+                const grouped = tagihan.filter(t => getSisa(t) > 0 && pelangganIds.has(t.idPelanggan)).reduce((acc, t) => { 
                     if(!acc[t.idPelanggan]) acc[t.idPelanggan]={tot:0, bayar:0, sisa:0, b:[]}; 
                     acc[t.idPelanggan].tot+=t.total; acc[t.idPelanggan].bayar+=getTerbayar(t); acc[t.idPelanggan].sisa+=getSisa(t); acc[t.idPelanggan].b.push(formatBulanTahunSingkat(t.periode)); 
                     return acc; 
@@ -914,7 +955,7 @@ ${alignCenter('PENGURUS')}
 
                     reportHtml = `
                         <div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div>
-                        <table class="no-border" style="margin-bottom: 20px;"><tr><td style="width:100px;"><strong>No Pelanggan</strong></td><td>: ${p.noPelanggan}</td></tr><tr><td><strong>Nama</strong></td><td>: ${p.nama}</td></tr><tr><td><strong>RT/RW</strong></td><td>: ${p.rt}/${p.rw}</td></tr></table>
+                        <table class="no-border" style="margin-bottom: 20px;"><tr><td style="width:100px;"><strong>No Pelanggan</strong></td><td>: ${p.noPelanggan}</td></tr><tr><td><strong>Nama</strong></td><td>: ${p.nama}</td></tr><tr><td><strong>Wilayah</strong></td><td>: ${p.wilayah || '-'}</td></tr><tr><td><strong>RT/RW</strong></td><td>: ${p.rt}/${p.rw}</td></tr></table>
                         <table><thead><tr><th>Periode</th><th>M.Awal</th><th>M.Akhir</th><th>Pakai</th><th>Tagihan</th><th>Dibayar</th><th>Sisa</th><th>Status</th></tr></thead><tbody>
                                 ${tags.map(t => `<tr><td class="text-center">${formatBulanTahunSingkat(t.periode)}</td><td class="text-center">${t.meterAwal}</td><td class="text-center">${t.meterAkhir}</td><td class="text-center">${t.meterAkhir - t.meterAwal} m3</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right font-bold" style="color:${getSisa(t)>0?'red':'inherit'}">${formatRp(getSisa(t))}</td><td class="text-center">${getStatusLabel(t)}</td></tr>`).join('')}
                                 ${tags.length===0?'<tr><td colspan="8" class="text-center">Belum ada riwayat tagihan.</td></tr>':''}
@@ -924,13 +965,13 @@ ${alignCenter('PENGURUS')}
             }
 
             const downloadDatabaseFull = () => {
-                let csvContent = "NoPelanggan;NamaPelanggan;Periode;MeterAwal;MeterAkhir;Pakai(m3);TotalTagihan;TotalDibayar;SisaTunggakan;StatusLunas\n";
+                let csvContent = "NoPelanggan;NamaPelanggan;Wilayah;Periode;MeterAwal;MeterAkhir;Pakai(m3);TotalTagihan;TotalDibayar;SisaTunggakan;StatusLunas\n";
                 // Urutkan berdasarkan periode
                 const sortedTagihan = [...tagihan].sort((a,b)=> a.periode.localeCompare(b.periode));
                 sortedTagihan.forEach(t => {
                     const p = pelanggan.find(x => x.id === t.idPelanggan);
-                    if(p) {
-                        csvContent += `"${p.noPelanggan}";"${p.nama}";"${t.periode}";${t.meterAwal};${t.meterAkhir};${t.meterAkhir-t.meterAwal};${t.total};${getTerbayar(t)};${getSisa(t)};"${getStatusLabel(t)}"\n`;
+                    if(p && (filterWilayah === 'Semua' || p.wilayah === filterWilayah)) {
+                        csvContent += `"${p.noPelanggan}";"${p.nama}";"${p.wilayah || ''}";"${t.periode}";${t.meterAwal};${t.meterAkhir};${t.meterAkhir-t.meterAwal};${t.total};${getTerbayar(t)};${getSisa(t)};"${getStatusLabel(t)}"\n`;
                     }
                 });
                 const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob);
@@ -942,6 +983,13 @@ ${alignCenter('PENGURUS')}
                 <div className="space-y-6">
                     <h2 className="text-2xl font-bold border-b pb-4 text-gray-800">Pusat Pelaporan</h2>
                     <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm flex flex-wrap gap-4 items-end">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Filter Wilayah</label>
+                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg outline-none text-sm min-w-[150px] bg-white font-bold text-blue-800">
+                                {uniqueWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? 'Semua Wilayah' : w}</option>)}
+                            </select>
+                        </div>
+
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Laporan</label>
                             <select value={reportType} onChange={e=>setReportType(e.target.value)} className="border p-2 rounded-lg outline-none text-sm min-w-[200px] bg-white">
@@ -960,14 +1008,14 @@ ${alignCenter('PENGURUS')}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Pelanggan</label>
                                 <select value={selectedPelangganId} onChange={e=>setSelectedPelangganId(e.target.value)} className="border p-2 rounded-lg outline-none text-sm w-48 bg-white">
-                                    {pelanggan.sort((a,b)=>a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric:true})).map(p => (
+                                    {pelangganFiltered.sort((a,b)=>a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric:true})).map(p => (
                                         <option key={p.id} value={p.id}>{p.noPelanggan} - {p.nama}</option>
                                     ))}
                                 </select>
                             </div>
                         )}
 
-                        <div className="flex gap-2 ml-auto">
+                        <div className="flex gap-2 ml-auto mt-4 md:mt-0">
                             <button onClick={downloadDatabaseFull} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center text-sm font-medium shadow-sm"><i className="fas fa-database mr-2"></i> Backup Data (Excel)</button>
                             <button onClick={()=>printContent(reportHtml, 'a4')} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg flex items-center text-sm font-medium shadow-sm"><i className="fas fa-print mr-2"></i> Cetak A4</button>
                         </div>
