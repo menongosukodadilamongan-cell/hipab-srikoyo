@@ -200,7 +200,6 @@
             if (!currentUser) return <LoginScreen users={adminUsers} settings={settings} onLogin={(userObj) => { 
                 localStorage.setItem('hipab_user', JSON.stringify(userObj)); 
                 setCurrentUser(userObj); 
-                if(userObj.role === 'Petugas') setActiveTab('pelanggan');
             }} showToast={showToast} />;
 
             const isAdmin = currentUser.role === 'Admin';
@@ -215,10 +214,10 @@
                             <h1 className="text-lg font-bold tracking-wide text-center px-2 leading-tight">{settings.appName}</h1>
                             {settings.appSubtitle && <p className="text-sm font-medium text-blue-200 text-center px-2 mt-1">{settings.appSubtitle}</p>}
                             <span className="mt-3 bg-blue-800 px-3 py-1 rounded-full text-xs border border-blue-700">Login: {currentUser.username} ({currentUser.role})</span>
-                            {currentUser.wilayah && <span className="mt-1 text-[10px] text-blue-300">Wilayah: {currentUser.wilayah}</span>}
+                            {currentUser.wilayah && <span className="mt-1 text-[10px] text-blue-300">Akses Wilayah Terbatas</span>}
                         </div>
                         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-                            {isAdmin && <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>setActiveTab('dashboard')} />}
+                            <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>setActiveTab('dashboard')} />
                             <NavItem icon="fa-users" label="Pelanggan" active={activeTab==='pelanggan'} onClick={()=>setActiveTab('pelanggan')} />
                             <NavItem icon="fa-file-invoice-dollar" label="Tagihan" active={activeTab==='tagihan'} onClick={()=>setActiveTab('tagihan')} />
                             <NavItem icon="fa-tools" label="Keluhan & Perbaikan" active={activeTab==='keluhan'} onClick={()=>setActiveTab('keluhan')} />
@@ -245,7 +244,7 @@
                                         <h2 className="font-bold text-lg">Menu Utama</h2><button onClick={() => setIsMobileMenuOpen(false)} className="p-2"><i className="fas fa-times text-xl"></i></button>
                                     </div>
                                     <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
-                                        {isAdmin && <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>{setActiveTab('dashboard'); setIsMobileMenuOpen(false);}} />}
+                                        <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>{setActiveTab('dashboard'); setIsMobileMenuOpen(false);}} />
                                         <NavItem icon="fa-users" label="Pelanggan" active={activeTab==='pelanggan'} onClick={()=>{setActiveTab('pelanggan'); setIsMobileMenuOpen(false);}} />
                                         <NavItem icon="fa-file-invoice-dollar" label="Tagihan" active={activeTab==='tagihan'} onClick={()=>{setActiveTab('tagihan'); setIsMobileMenuOpen(false);}} />
                                         <NavItem icon="fa-tools" label="Keluhan & Perbaikan" active={activeTab==='keluhan'} onClick={()=>{setActiveTab('keluhan'); setIsMobileMenuOpen(false);}} />
@@ -260,7 +259,7 @@
                         )}
 
                         <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8">
-                            {activeTab === 'dashboard' && isAdmin && <Dashboard pelanggan={pelangganData} tagihan={tagihanData} pengeluaran={pengeluaranData} keluhan={keluhanData} />}
+                            {activeTab === 'dashboard' && <Dashboard pelanggan={pelangganData} tagihan={tagihanData} pengeluaran={pengeluaranData} keluhan={keluhanData} isAdmin={isAdmin} currentUser={currentUser} />}
                             {activeTab === 'pelanggan' && <PelangganManager data={pelangganData} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
                             {activeTab === 'tagihan' && <TagihanManager pelanggan={pelangganData} tagihan={tagihanData} settings={settings} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
                             {activeTab === 'keluhan' && <KeluhanManager data={keluhanData} pelanggan={pelangganData} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
@@ -312,35 +311,72 @@
         }
 
         // ==========================================
-        // DASHBOARD (TERMASUK LABA BERSIH)
+        // DASHBOARD
         // ==========================================
-        function Dashboard({ pelanggan, tagihan, pengeluaran, keluhan }) {
+        function Dashboard({ pelanggan, tagihan, pengeluaran, keluhan, isAdmin, currentUser }) {
             const currentMonth = new Date().toISOString().slice(0, 7);
-            const pelangganAktif = pelanggan.filter(p=>p.status==='Aktif').length;
             
-            const validTagihan = tagihan.filter(t => pelanggan.some(p => p.id === t.idPelanggan));
+            // Logika Multi-Wilayah untuk Petugas di Dashboard
+            const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
+            const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
+            const [filterWilayah, setFilterWilayah] = useState('Semua');
+            
+            const allWilayahs = [...new Set(pelanggan.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
+            const dropdownWilayahs = isPetugasLocked ? ['Semua', ...userWilayahList] : ['Semua', ...allWilayahs];
+
+            const filteredPelanggan = pelanggan.filter(p => {
+                if (isPetugasLocked) {
+                    if (filterWilayah === 'Semua') return userWilayahList.includes(p.wilayah);
+                    return p.wilayah === filterWilayah;
+                }
+                return filterWilayah === 'Semua' || p.wilayah === filterWilayah;
+            });
+
+            const validPelangganIds = new Set(filteredPelanggan.map(p => p.id));
+            const pelangganAktif = filteredPelanggan.filter(p=>p.status==='Aktif').length;
+            
+            const validTagihan = tagihan.filter(t => validPelangganIds.has(t.idPelanggan));
             const tagihanBulanIni = validTagihan.filter(t => t.periode === currentMonth);
             const pemasukan = tagihanBulanIni.reduce((s, t) => s + getTerbayar(t), 0);
             const tunggakan = tagihanBulanIni.reduce((s, t) => s + getSisa(t), 0);
+            const totalTunggakan = validTagihan.reduce((s, t) => s + getSisa(t), 0);
             
-            const pengeluaranBulanIni = pengeluaran.filter(k => k.tanggal.startsWith(currentMonth)).reduce((s, k) => s + Number(k.nominal), 0);
+            // Pengeluaran & Laba Bersih hanya relevan jika Admin dan melihat Semua wilayah (pengeluaran sifatnya global)
+            const showPengeluaran = isAdmin && filterWilayah === 'Semua';
+            const pengeluaranBulanIni = showPengeluaran ? pengeluaran.filter(k => k.tanggal.startsWith(currentMonth)).reduce((s, k) => s + Number(k.nominal), 0) : 0;
             const labaBersih = pemasukan - pengeluaranBulanIni;
 
-            const keluhanPending = keluhan ? keluhan.filter(k => k.status !== 'Selesai').length : 0;
+            const keluhanPending = keluhan ? keluhan.filter(k => k.status !== 'Selesai' && validPelangganIds.has(k.idPelanggan)).length : 0;
 
             const last6Months = Array.from({length: 6}, (_, i) => { const d = new Date(); d.setMonth(d.getMonth() - i); return d.toISOString().slice(0, 7); }).reverse();
             const chartData = last6Months.map(month => ({ label: formatBulanTahunSingkat(month), value: validTagihan.filter(t => t.periode === month).reduce((s, t) => s + getTerbayar(t), 0) }));
-            const maxVal = Math.max(...chartData.map(d => d.value), 100000);
+            const maxVal = Math.max(...chartData.map(d => d.value), 100000) || 1;
 
             return (
                 <div className="space-y-6">
-                    <h2 className="text-2xl font-bold border-b pb-2 text-gray-800">Dashboard Keuangan</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
+                        <h2 className="text-2xl font-bold text-gray-800">Dashboard {filterWilayah !== 'Semua' ? `(${filterWilayah})` : ''}</h2>
+                        <div className="flex gap-2 items-center">
+                            <label className="text-sm font-medium text-gray-600 hidden md:block">Filter Wilayah:</label>
+                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm" disabled={isPetugasLocked}>
+                                {dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? (isPetugasLocked ? 'Semua Wilayah Tugas' : 'Semua Wilayah') : w}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Pelanggan Aktif</p><p className="text-2xl font-bold text-gray-800">{pelangganAktif}</p></div><div className="bg-blue-50 p-3 rounded-full"><i className="fas fa-users text-2xl text-blue-500"></i></div></div>
                         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Pemasukan Bulan Ini</p><p className="text-xl font-bold text-green-600">{formatRp(pemasukan)}</p></div><div className="bg-green-50 p-3 rounded-full"><i className="fas fa-hand-holding-usd text-2xl text-green-500"></i></div></div>
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Pengeluaran Bln Ini</p><p className="text-xl font-bold text-red-600">{formatRp(pengeluaranBulanIni)}</p></div><div className="bg-red-50 p-3 rounded-full"><i className="fas fa-money-bill-wave text-2xl text-red-500"></i></div></div>
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Laba Bersih Bln Ini</p><p className="text-xl font-bold text-blue-800">{formatRp(labaBersih)}</p></div><div className="bg-blue-50 p-3 rounded-full"><i className="fas fa-piggy-bank text-2xl text-blue-500"></i></div></div>
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Sisa Tagihan (Tunggakan)</p><p className="text-xl font-bold text-yellow-600">{formatRp(tunggakan)}</p></div><div className="bg-yellow-50 p-3 rounded-full"><i className="fas fa-exclamation-triangle text-2xl text-yellow-500"></i></div></div>
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Sisa Tagihan Bulan Ini</p><p className="text-xl font-bold text-yellow-600">{formatRp(tunggakan)}</p></div><div className="bg-yellow-50 p-3 rounded-full"><i className="fas fa-exclamation-triangle text-2xl text-yellow-500"></i></div></div>
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Total Seluruh Tunggakan</p><p className="text-xl font-bold text-red-600">{formatRp(totalTunggakan)}</p></div><div className="bg-red-50 p-3 rounded-full"><i className="fas fa-file-invoice-dollar text-2xl text-red-500"></i></div></div>
                         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Keluhan Menunggu</p><p className="text-xl font-bold text-orange-600">{keluhanPending} Laporan</p></div><div className="bg-orange-50 p-3 rounded-full"><i className="fas fa-tools text-2xl text-orange-500"></i></div></div>
+                        
+                        {showPengeluaran && (
+                            <>
+                                <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Pengeluaran Bln Ini</p><p className="text-xl font-bold text-red-600">{formatRp(pengeluaranBulanIni)}</p></div><div className="bg-red-50 p-3 rounded-full"><i className="fas fa-money-bill-wave text-2xl text-red-500"></i></div></div>
+                                <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Laba Bersih Bln Ini</p><p className="text-xl font-bold text-blue-800">{formatRp(labaBersih)}</p></div><div className="bg-blue-50 p-3 rounded-full"><i className="fas fa-piggy-bank text-2xl text-blue-500"></i></div></div>
+                            </>
+                        )}
                     </div>
                     <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 mt-8">
                         <h3 className="text-lg font-bold mb-6 text-gray-700">Grafik Pemasukan (Berdasarkan Uang Masuk)</h3>
@@ -416,7 +452,7 @@
         }
 
         // ==========================================
-        // MANAJEMEN KELUHAN & PERBAIKAN (TICKETING)
+        // MANAJEMEN KELUHAN & PERBAIKAN
         // ==========================================
         function KeluhanManager({ data, pelanggan, showToast, isAdmin, currentUser }) {
             const [modal, setModal] = useState(false); 
@@ -424,10 +460,15 @@
             const [form, setForm] = useState({ tanggal: getCurrentDateYMD(), idPelanggan: '', keluhan: '', status: 'Menunggu', keterangan: '' });
             const [filterStatus, setFilterStatus] = useState('Semua');
             
-            const isPetugasLocked = !isAdmin && currentUser.wilayah;
+            // Logika Multi-Wilayah untuk Petugas
+            const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
+            const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
             
-            // Filter data yang tampil berdasarkan wilayah petugas
-            const validPelangganIds = new Set(pelanggan.filter(p => !isPetugasLocked || p.wilayah === currentUser.wilayah).map(p => p.id));
+            const validPelangganIds = new Set(pelanggan.filter(p => {
+                if (isPetugasLocked) return userWilayahList.includes(p.wilayah);
+                return true;
+            }).map(p => p.id));
+
             const filteredData = data.filter(k => validPelangganIds.has(k.idPelanggan))
                                      .filter(k => filterStatus === 'Semua' || k.status === filterStatus)
                                      .sort((a,b) => new Date(b.tanggal) - new Date(a.tanggal));
@@ -452,6 +493,7 @@
             };
 
             const hapus = async (id) => { 
+                if(!isAdmin) return alert("Hanya Admin yang bisa menghapus data keluhan!");
                 if(window.confirm('Yakin ingin menghapus catatan keluhan ini?')) {
                     await DB_PUSAT.collection('keluhan').doc(id).delete(); showToast('Data Dihapus');
                 }
@@ -544,21 +586,25 @@
         }
 
         // ==========================================
-        // MANAJEMEN PELANGGAN (DENGAN FILTER WILAYAH)
+        // MANAJEMEN PELANGGAN
         // ==========================================
         function PelangganManager({ data, showToast, isAdmin, currentUser }) {
             const [modal, setModal] = useState(false); const [editId, setEditId] = useState(null);
             
-            const isPetugasLocked = !isAdmin && currentUser.wilayah;
-            const [filterWilayah, setFilterWilayah] = useState(isPetugasLocked ? currentUser.wilayah : 'Semua');
-            const uniqueWilayahs = ['Semua', ...new Set(data.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
+            // Logika Multi-Wilayah untuk Petugas
+            const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
+            const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
+            const [filterWilayah, setFilterWilayah] = useState('Semua');
+            
+            const allWilayahs = [...new Set(data.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
+            const dropdownWilayahs = isPetugasLocked ? ['Semua', ...userWilayahList] : ['Semua', ...allWilayahs];
 
             const [form, setForm] = useState({ no: '', nama: '', wilayah: '', rt: '', rw: '', status: 'Aktif', hp: '' });
             const [search, setSearch] = useState(''); const [filterStatus, setFilterStatus] = useState('Semua'); const [sortBy, setSortBy] = useState('noPelanggan');
 
             const openModal = (p = null) => {
                 if(p) { setEditId(p.id); setForm({ no: p.noPelanggan, nama: p.nama, wilayah: p.wilayah || '', rt: p.rt, rw: p.rw, status: p.status, hp: p.noHp }); }
-                else { setEditId(null); setForm({ no: '', nama: '', wilayah: isPetugasLocked ? currentUser.wilayah : '', rt: '', rw: '', status: 'Aktif', hp: '' }); }
+                else { setEditId(null); setForm({ no: '', nama: '', wilayah: isPetugasLocked ? userWilayahList[0] || '' : '', rt: '', rw: '', status: 'Aktif', hp: '' }); }
                 setModal(true);
             };
 
@@ -610,8 +656,14 @@
             };
 
             const filteredData = data
+                .filter(p => {
+                    if (isPetugasLocked) {
+                        if (filterWilayah === 'Semua') return userWilayahList.includes(p.wilayah);
+                        return p.wilayah === filterWilayah;
+                    }
+                    return filterWilayah === 'Semua' || p.wilayah === filterWilayah;
+                })
                 .filter(p => filterStatus === 'Semua' || p.status === filterStatus)
-                .filter(p => filterWilayah === 'Semua' || p.wilayah === filterWilayah)
                 .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
                 .sort((a, b) => {
                     if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
@@ -624,8 +676,8 @@
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
                         <h2 className="text-2xl font-bold text-gray-800">Pelanggan</h2>
                         <div className="flex flex-wrap gap-2 w-full md:w-auto items-center">
-                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800" disabled={isPetugasLocked}>
-                                {isPetugasLocked ? <option value={currentUser.wilayah}>{currentUser.wilayah}</option> : uniqueWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? 'Semua Wilayah' : w}</option>)}
+                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm">
+                                {dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? (isPetugasLocked ? 'Semua Wilayah Tugas' : 'Semua Wilayah') : w}</option>)}
                             </select>
                             <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
                                 <option value="Semua">Semua Status</option><option value="Aktif">Aktif</option><option value="Tidak Aktif">Tidak Aktif</option>
@@ -635,7 +687,7 @@
                             </select>
                             <div className="relative flex-1 md:w-40"><i className="fas fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg outline-none text-sm"/></div>
                             
-                            <button onClick={()=>openModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm shadow-sm"><i className="fas fa-user-plus md:mr-2"></i> <span className="hidden md:inline">Tambah</span></button>
+                            {isAdmin && <button onClick={()=>openModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm shadow-sm"><i className="fas fa-user-plus md:mr-2"></i> <span className="hidden md:inline">Tambah</span></button>}
                             
                             {isAdmin && <div className="flex bg-white rounded-lg p-1 border shadow-sm">
                                 <div className="relative overflow-hidden inline-block border-r pr-1"><input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" title="Import CSV" /><button className="text-green-600 hover:bg-green-50 px-3 py-1.5 rounded text-sm flex items-center pointer-events-none"><i className="fas fa-file-import md:mr-2"></i> <span className="hidden md:inline">Import</span></button></div>
@@ -666,7 +718,7 @@
                                 <div className="space-y-4 mb-6">
                                     <div className="grid grid-cols-2 gap-4"><div><label className="text-xs font-medium text-gray-600 block mb-1">No Pelanggan</label><input value={form.no} onChange={e=>setForm({...form, no:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div><div><label className="text-xs font-medium text-gray-600 block mb-1">No HP</label><input value={form.hp} onChange={e=>setForm({...form, hp:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none"/></div></div>
                                     <div><label className="text-xs font-medium text-gray-600 block mb-1">Nama Lengkap</label><input value={form.nama} onChange={e=>setForm({...form, nama:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
-                                    <div><label className="text-xs font-medium text-gray-600 block mb-1">Wilayah / Blok / Dusun</label><input value={form.wilayah} onChange={e=>setForm({...form, wilayah:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Cth: Dusun Krajan / Blok A" disabled={isPetugasLocked} /></div>
+                                    <div><label className="text-xs font-medium text-gray-600 block mb-1">Wilayah / Blok / Dusun</label><input value={form.wilayah} onChange={e=>setForm({...form, wilayah:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Cth: Dusun Krajan" /></div>
                                     <div className="grid grid-cols-3 gap-4"><div><label className="text-xs font-medium text-gray-600 block mb-1">RT</label><input value={form.rt} onChange={e=>setForm({...form, rt:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" /></div><div><label className="text-xs font-medium text-gray-600 block mb-1">RW</label><input value={form.rw} onChange={e=>setForm({...form, rw:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" /></div><div><label className="text-xs font-medium text-gray-600 block mb-1">Status</label><select value={form.status} onChange={e=>setForm({...form, status:e.target.value})} className="border p-2 w-full rounded outline-none"><option>Aktif</option><option>Tidak Aktif</option></select></div></div>
                                 </div>
                                 <div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-5 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Simpan</button></div>
@@ -678,14 +730,17 @@
         }
 
         // ==========================================
-        // MANAJEMEN TAGIHAN (WILAYAH & KEMBALIAN)
+        // MANAJEMEN TAGIHAN 
         // ==========================================
         function TagihanManager({ pelanggan, tagihan, settings, showToast, isAdmin, currentUser }) {
             const [periode, setPeriode] = useState(new Date().toISOString().slice(0, 7));
             
-            const isPetugasLocked = !isAdmin && currentUser.wilayah;
-            const [filterWilayah, setFilterWilayah] = useState(isPetugasLocked ? currentUser.wilayah : 'Semua');
-            const uniqueWilayahs = ['Semua', ...new Set(pelanggan.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
+            const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
+            const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
+            const [filterWilayah, setFilterWilayah] = useState('Semua');
+            
+            const allWilayahs = [...new Set(pelanggan.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
+            const dropdownWilayahs = isPetugasLocked ? ['Semua', ...userWilayahList] : ['Semua', ...allWilayahs];
 
             const [search, setSearch] = useState(''); const [filterStatus, setFilterStatus] = useState('Semua'); const [sortBy, setSortBy] = useState('noPelanggan');
             const [modal, setModal] = useState(false); const [selP, setSelP] = useState(null); const [existT, setExistT] = useState(null);
@@ -697,7 +752,13 @@
 
             const filteredPelanggan = pelanggan
                 .filter(p => p.status === 'Aktif' || tagihan.some(t => t.idPelanggan === p.id && t.periode === periode))
-                .filter(p => filterWilayah === 'Semua' || p.wilayah === filterWilayah)
+                .filter(p => {
+                    if (isPetugasLocked) {
+                        if (filterWilayah === 'Semua') return userWilayahList.includes(p.wilayah);
+                        return p.wilayah === filterWilayah;
+                    }
+                    return filterWilayah === 'Semua' || p.wilayah === filterWilayah;
+                })
                 .filter(p => {
                     const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
                     if(filterStatus === 'Semua') return true;
@@ -870,8 +931,8 @@ ${alignCenter('PENGURUS')}
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
                         <h2 className="text-2xl font-bold text-gray-800">Tagihan & Pembayaran</h2>
                         <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
-                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm" disabled={isPetugasLocked}>
-                                {isPetugasLocked ? <option value={currentUser.wilayah}>{currentUser.wilayah}</option> : uniqueWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? 'Semua Wilayah' : w}</option>)}
+                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm">
+                                {dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? (isPetugasLocked ? 'Semua Wilayah Tugas' : 'Semua Wilayah') : w}</option>)}
                             </select>
                             <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm"><option value="Semua">Semua Tagihan</option><option value="BELUM">Belum Lunas</option><option value="NYICIL">Nyicil (Bln Ini)</option><option value="LUNAS">Lunas Total</option></select>
                             <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm hidden md:inline-block"><option value="noPelanggan">Urut: No. Pelanggan</option><option value="wilayah">Urut: Wilayah</option><option value="rtRw">Urut: RT / RW</option></select>
@@ -883,7 +944,7 @@ ${alignCenter('PENGURUS')}
                     {/* Hanya Admin yang bisa melihat ringkasan uang tagihan */}
                     {isAdmin && (
                         <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4">
-                            <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Tagihan Bln Ini ({filterWilayah})</p><p className="text-sm md:text-lg font-bold text-blue-900">{formatRp(summaryTotal)}</p></div>
+                            <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Tagihan Bln Ini {filterWilayah !== 'Semua' ? `(${filterWilayah})` : ''}</p><p className="text-sm md:text-lg font-bold text-blue-900">{formatRp(summaryTotal)}</p></div>
                             <div className="bg-green-50 border border-green-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-green-600 font-bold uppercase mb-1">Uang Masuk Bln Ini</p><p className="text-sm md:text-lg font-bold text-green-900">{formatRp(summaryLunas)}</p></div>
                             <div className="bg-red-50 border border-red-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-red-600 font-bold uppercase mb-1">Sisa Tagihan Bln Ini</p><p className="text-sm md:text-lg font-bold text-red-900">{formatRp(summaryBelum)}</p></div>
                         </div>
@@ -980,7 +1041,7 @@ ${alignCenter('PENGURUS')}
                     </form>
                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                         <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-gray-700"><i className="fas fa-users-cog mr-2"></i> Akun Login (Hak Akses & Wilayah)</h3><button onClick={tambahUser} className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded border"><i className="fas fa-plus mr-1"></i> Tambah User</button></div>
-                        <p className="text-xs text-gray-500 mb-4"><b>Admin</b> memiliki akses penuh. <b>Petugas</b> hanya bisa mengisi meteran pelanggan dan bisa dikunci ke <b>Wilayah tertentu</b>.</p>
+                        <p className="text-xs text-gray-500 mb-4"><b>Admin</b> memiliki akses penuh. <b>Petugas</b> bisa dikunci ke <b>beberapa wilayah</b> sekaligus dengan cara <b>memisahkan namanya dengan tanda koma</b>.</p>
                         <div className="space-y-3 mb-6">
                             {usersList.map((u, i) => (
                                 <div key={u.id} className="flex flex-wrap md:flex-nowrap gap-2 items-center bg-gray-50 p-2 rounded">
@@ -992,7 +1053,7 @@ ${alignCenter('PENGURUS')}
                                         <option value="Petugas">Petugas</option>
                                     </select>
                                     {u.role === 'Petugas' && (
-                                        <input type="text" placeholder="Kunci Wilayah (Kosong=Bisa Semua)" value={u.wilayah || ''} onChange={e=>updateUser(u.id, 'wilayah', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[120px]"/>
+                                        <input type="text" placeholder="Wilayah (Pisah koma. Cth: RT 1, RT 2)" value={u.wilayah || ''} onChange={e=>updateUser(u.id, 'wilayah', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[200px]"/>
                                     )}
                                     <button onClick={()=>hapusUser(u.id)} className="text-red-500 hover:bg-red-100 p-2 rounded"><i className="fas fa-trash"></i></button>
                                 </div>
@@ -1102,7 +1163,6 @@ ${alignCenter('PENGURUS')}
 
             const downloadDatabaseFull = () => {
                 let csvContent = "NoPelanggan;NamaPelanggan;Wilayah;Periode;MeterAwal;MeterAkhir;Pakai(m3);TotalTagihan;TotalDibayar;SisaTunggakan;StatusLunas\n";
-                // Urutkan berdasarkan periode
                 const sortedTagihan = [...tagihan].sort((a,b)=> a.periode.localeCompare(b.periode));
                 sortedTagihan.forEach(t => {
                     const p = pelanggan.find(x => x.id === t.idPelanggan);
