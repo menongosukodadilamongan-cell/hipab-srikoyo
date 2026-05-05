@@ -45,11 +45,12 @@
         }
         const auth = firebase.auth();
         const db = firebase.firestore();
-
         const DB_PUSAT = db.collection('srikoyo_database').doc('main_data');
         const { useState, useEffect, useRef } = React;
 
-        // --- FUNGSI BANTUAN (UTILITY) ---
+        // ==========================================
+        // FUNGSI BANTUAN (UTILITY)
+        // ==========================================
         const formatRp = (number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0);
         const formatBulanTahunSingkat = (isoString) => {
             if(!isoString) return '';
@@ -77,7 +78,9 @@
             try { document.execCommand('copy'); return true; } catch (err) { return false; } finally { document.body.removeChild(textArea); }
         };
 
-        // --- SISTEM PEMBAYARAN FLEKSIBEL ---
+        // ==========================================
+        // SISTEM PEMBAYARAN & KRITIS
+        // ==========================================
         const getTerbayar = (t) => {
             if (!t) return 0;
             if (t.terbayar !== undefined) return Number(t.terbayar);
@@ -92,8 +95,16 @@
         const getTunggakanLalu = (semuaTagihan, idPelanggan, currentPeriode) => {
             return semuaTagihan.filter(t => t.idPelanggan === idPelanggan && t.periode < currentPeriode).reduce((s, t) => s + getSisa(t), 0);
         };
+        const checkKritis = (semuaTagihan, idPelanggan) => {
+            const tagihanBelumLunas = semuaTagihan.filter(t => t.idPelanggan === idPelanggan && getSisa(t) > 0);
+            const totalHutang = tagihanBelumLunas.reduce((s, t) => s + getSisa(t), 0);
+            const jumlahBulanMenunggak = tagihanBelumLunas.length;
+            return (jumlahBulanMenunggak >= 3 || totalHutang >= 350000);
+        };
 
-        // Format Struk Thermal Bluetooth
+        // ==========================================
+        // SISTEM CETAK STRUK
+        // ==========================================
         const alignCenter = (text) => { const str = String(text); return str.padStart(Math.floor((32 - str.length) / 2) + str.length).padEnd(32); };
         const alignLeftRight = (left, right) => { const strLeft = String(left); const strRight = String(right); const spaces = 32 - strLeft.length - strRight.length; return strLeft + ' '.repeat(Math.max(0, spaces)) + strRight; };
 
@@ -137,145 +148,12 @@
             return <i className={`fas fa-tint ${className}`}></i>;
         };
 
-        // ==========================================
-        // KOMPONEN UTAMA APLIKASI
-        // ==========================================
-        function App() {
-            const [firebaseUser, setFirebaseUser] = useState(null);
-            const [currentUser, setCurrentUser] = useState(() => {
-                const saved = localStorage.getItem('hipab_user');
-                return saved ? JSON.parse(saved) : null;
-            });
-            const [activeTab, setActiveTab] = useState('dashboard');
-            const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-            const [toastMessage, setToastMessage] = useState(null);
-            
-            const [pelangganData, setPelangganData] = useState([]);
-            const [tagihanData, setTagihanData] = useState([]);
-            const [pengeluaranData, setPengeluaranData] = useState([]);
-            const [keluhanData, setKeluhanData] = useState([]);
-            const [adminUsers, setAdminUsers] = useState([]);
-            const [settings, setSettings] = useState({ appName: 'BUMDES SRIKOYO', appSubtitle: 'UNIT HIPAB', tarif: 1500, beban: 2000, logo: '' });
-
-            useEffect(() => { 
-                const initAuth = async () => { try { await auth.signInAnonymously(); } catch (err) { console.error("Auth Error", err); } };
-                initAuth();
-                const unsubscribe = auth.onAuthStateChanged(user => setFirebaseUser(user));
-                return () => unsubscribe();
-            }, []);
-
-            useEffect(() => {
-                if (!firebaseUser) return;
-                const unsubConfig = DB_PUSAT.collection('pengaturan').doc('konfigurasi').onSnapshot(doc => {
-                    if(doc.exists) setSettings(doc.data()); else DB_PUSAT.collection('pengaturan').doc('konfigurasi').set(settings);
-                });
-                const unsubUsers = DB_PUSAT.collection('pengaturan').doc('users').onSnapshot(doc => {
-                    if(doc.exists) setAdminUsers(doc.data().list || []);
-                    else {
-                        const defaultUsers = [{ id: Date.now().toString(), username: 'admin', password: 'admin123', role: 'Admin', wilayah: '' }];
-                        DB_PUSAT.collection('pengaturan').doc('users').set({ list: defaultUsers }); setAdminUsers(defaultUsers);
-                    }
-                });
-
-                if (!currentUser) return () => { unsubConfig(); unsubUsers(); };
-
-                const unsubP = DB_PUSAT.collection('pelanggan').onSnapshot(snap => setPelangganData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-                const unsubT = DB_PUSAT.collection('tagihan').onSnapshot(snap => setTagihanData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-                const unsubK = DB_PUSAT.collection('pengeluaran').onSnapshot(snap => setPengeluaranData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-                const unsubKeluhan = DB_PUSAT.collection('keluhan').onSnapshot(snap => setKeluhanData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-                return () => { unsubP(); unsubT(); unsubK(); unsubKeluhan(); unsubConfig(); unsubUsers(); };
-            }, [currentUser, firebaseUser]);
-
-            const showToast = (msg) => { setToastMessage(msg); setTimeout(() => setToastMessage(null), 3000); };
-            
-            const handleLogout = () => { 
-                localStorage.removeItem('hipab_user'); 
-                setCurrentUser(null); 
-                setActiveTab('dashboard');
-            };
-
-            if (!firebaseUser) return <div className="flex h-[100dvh] items-center justify-center bg-blue-900 text-white flex-col"><i className="fas fa-circle-notch fa-spin text-5xl mb-4"></i><h2 className="text-xl font-bold">Menghubungkan Server...</h2></div>;
-            
-            if (!currentUser) return <LoginScreen users={adminUsers} settings={settings} onLogin={(userObj) => { 
-                localStorage.setItem('hipab_user', JSON.stringify(userObj)); 
-                setCurrentUser(userObj); 
-            }} showToast={showToast} />;
-
-            const isAdmin = currentUser.role === 'Admin';
-
-            return (
-                <div className="flex h-[100dvh] overflow-hidden">
-                    {toastMessage && <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-5 py-3 rounded-lg shadow-lg flex items-center animate-bounce z-[100]"><i className="fas fa-check-circle mr-2"></i> {toastMessage}</div>}
-
-                    <aside className="hidden md:flex flex-col w-64 bg-blue-900 text-white h-full shadow-xl z-20 relative">
-                        <div className="flex flex-col items-center justify-center py-6 border-b border-blue-800">
-                            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-3 overflow-hidden p-2 text-blue-600"><LogoRenderer logo={settings.logo} className="text-3xl" /></div>
-                            <h1 className="text-lg font-bold tracking-wide text-center px-2 leading-tight">{settings.appName}</h1>
-                            {settings.appSubtitle && <p className="text-sm font-medium text-blue-200 text-center px-2 mt-1">{settings.appSubtitle}</p>}
-                            <span className="mt-3 bg-blue-800 px-3 py-1 rounded-full text-xs border border-blue-700">Login: {currentUser.username} ({currentUser.role})</span>
-                            {currentUser.wilayah && <span className="mt-1 text-[10px] text-blue-300">Akses Wilayah Terbatas</span>}
-                        </div>
-                        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-                            <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>setActiveTab('dashboard')} />
-                            <NavItem icon="fa-users" label="Pelanggan" active={activeTab==='pelanggan'} onClick={()=>setActiveTab('pelanggan')} />
-                            <NavItem icon="fa-file-invoice-dollar" label="Tagihan" active={activeTab==='tagihan'} onClick={()=>setActiveTab('tagihan')} />
-                            <NavItem icon="fa-tools" label="Keluhan & Perbaikan" active={activeTab==='keluhan'} onClick={()=>setActiveTab('keluhan')} />
-                            {isAdmin && <NavItem icon="fa-book" label="Buku Kas (Pengeluaran)" active={activeTab==='pengeluaran'} onClick={()=>setActiveTab('pengeluaran')} />}
-                            {isAdmin && <NavItem icon="fa-chart-pie" label="Pelaporan" active={activeTab==='pelaporan'} onClick={()=>setActiveTab('pelaporan')} />}
-                            {isAdmin && <NavItem icon="fa-cog" label="Pengaturan" active={activeTab==='pengaturan'} onClick={()=>setActiveTab('pengaturan')} />}
-                        </nav>
-                        <div className="p-4 border-t border-blue-800"><button onClick={handleLogout} className="flex items-center justify-center w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"><i className="fas fa-sign-out-alt mr-2"></i> Keluar</button></div>
-                    </aside>
-
-                    <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50 relative">
-                        <header className="md:hidden flex items-center justify-between bg-blue-900 text-white p-4 shadow-md z-10">
-                            <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 bg-blue-800 rounded"><i className="fas fa-bars text-xl"></i></button>
-                            <div className="flex items-center font-bold">
-                                <div className="w-6 h-6 mr-2 flex items-center justify-center text-blue-300"><LogoRenderer logo={settings.logo} className="text-lg" /></div>
-                                <div className="flex flex-col"><span className="truncate max-w-[180px] leading-tight">{settings.appName}</span>{settings.appSubtitle && <span className="text-xs text-blue-200 truncate max-w-[180px] font-medium leading-tight">{settings.appSubtitle}</span>}</div>
-                            </div><div className="w-8"></div>
-                        </header>
-
-                        {isMobileMenuOpen && (
-                            <div className="md:hidden fixed inset-0 z-50 flex">
-                                <div className="bg-blue-900 w-64 h-full shadow-2xl flex flex-col transform transition-transform duration-300">
-                                    <div className="flex items-center justify-between p-4 border-b border-blue-800 text-white">
-                                        <h2 className="font-bold text-lg">Menu Utama</h2><button onClick={() => setIsMobileMenuOpen(false)} className="p-2"><i className="fas fa-times text-xl"></i></button>
-                                    </div>
-                                    <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
-                                        <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>{setActiveTab('dashboard'); setIsMobileMenuOpen(false);}} />
-                                        <NavItem icon="fa-users" label="Pelanggan" active={activeTab==='pelanggan'} onClick={()=>{setActiveTab('pelanggan'); setIsMobileMenuOpen(false);}} />
-                                        <NavItem icon="fa-file-invoice-dollar" label="Tagihan" active={activeTab==='tagihan'} onClick={()=>{setActiveTab('tagihan'); setIsMobileMenuOpen(false);}} />
-                                        <NavItem icon="fa-tools" label="Keluhan & Perbaikan" active={activeTab==='keluhan'} onClick={()=>{setActiveTab('keluhan'); setIsMobileMenuOpen(false);}} />
-                                        {isAdmin && <NavItem icon="fa-book" label="Buku Kas" active={activeTab==='pengeluaran'} onClick={()=>{setActiveTab('pengeluaran'); setIsMobileMenuOpen(false);}} />}
-                                        {isAdmin && <NavItem icon="fa-chart-pie" label="Pelaporan" active={activeTab==='pelaporan'} onClick={()=>{setActiveTab('pelaporan'); setIsMobileMenuOpen(false);}} />}
-                                        {isAdmin && <NavItem icon="fa-cog" label="Pengaturan" active={activeTab==='pengaturan'} onClick={()=>{setActiveTab('pengaturan'); setIsMobileMenuOpen(false);}} />}
-                                    </nav>
-                                    <div className="p-4 border-t border-blue-800"><button onClick={handleLogout} className="flex items-center justify-center w-full px-4 py-3 bg-red-600 text-white rounded"><i className="fas fa-sign-out-alt mr-2"></i> Keluar</button></div>
-                                </div>
-                                <div className="flex-1 bg-black bg-opacity-50" onClick={() => setIsMobileMenuOpen(false)}></div>
-                            </div>
-                        )}
-
-                        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8">
-                            {activeTab === 'dashboard' && <Dashboard pelanggan={pelangganData} tagihan={tagihanData} pengeluaran={pengeluaranData} keluhan={keluhanData} isAdmin={isAdmin} currentUser={currentUser} />}
-                            {activeTab === 'pelanggan' && <PelangganManager data={pelangganData} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
-                            {activeTab === 'tagihan' && <TagihanManager pelanggan={pelangganData} tagihan={tagihanData} settings={settings} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
-                            {activeTab === 'keluhan' && <KeluhanManager data={keluhanData} pelanggan={pelangganData} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
-                            {activeTab === 'pengeluaran' && isAdmin && <PengeluaranManager data={pengeluaranData} showToast={showToast} />}
-                            {activeTab === 'pelaporan' && isAdmin && <Pelaporan pelanggan={pelangganData} tagihan={tagihanData} pengeluaran={pengeluaranData} settings={settings} />}
-                            {activeTab === 'pengaturan' && isAdmin && <PengaturanManager settings={settings} adminUsers={adminUsers} showToast={showToast} />}
-                        </main>
-                    </div>
-                </div>
-            );
+        function NavItem({ icon, label, active, onClick }) { 
+            return <button onClick={onClick} className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors ${active ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800 hover:text-white'}`}><i className={`fas ${icon} w-6 text-center mr-2 text-lg`}></i> {label}</button>; 
         }
 
-        function NavItem({ icon, label, active, onClick }) { return <button onClick={onClick} className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors ${active ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800 hover:text-white'}`}><i className={`fas ${icon} w-6 text-center mr-2 text-lg`}></i> {label}</button>; }
-
         // ==========================================
-        // LAYAR LOGIN
+        // 1. KOMPONEN LAYAR LOGIN
         // ==========================================
         function LoginScreen({ users, settings, onLogin, showToast }) {
             const [user, setUser] = useState(''); const [pass, setPass] = useState('');
@@ -311,7 +189,7 @@
         }
 
         // ==========================================
-        // DASHBOARD
+        // 2. KOMPONEN DASHBOARD
         // ==========================================
         function Dashboard({ pelanggan, tagihan, pengeluaran, keluhan, isAdmin, currentUser }) {
             const currentMonth = new Date().toISOString().slice(0, 7);
@@ -319,7 +197,7 @@
             // Logika Multi-Wilayah untuk Petugas di Dashboard
             const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
             const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
-            const [filterWilayah, setFilterWilayah] = useState('Semua');
+            const [filterWilayah, setFilterWilayah] = useState(isPetugasLocked ? userWilayahList[0] || 'Semua' : 'Semua');
             
             const allWilayahs = [...new Set(pelanggan.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
             const dropdownWilayahs = isPetugasLocked ? ['Semua', ...userWilayahList] : ['Semua', ...allWilayahs];
@@ -341,7 +219,9 @@
             const tunggakan = tagihanBulanIni.reduce((s, t) => s + getSisa(t), 0);
             const totalTunggakan = validTagihan.reduce((s, t) => s + getSisa(t), 0);
             
-            // Pengeluaran & Laba Bersih hanya relevan jika Admin dan melihat Semua wilayah (pengeluaran sifatnya global)
+            // Hitung Pelanggan Kritis
+            const pelangganKritisCount = Array.from(validPelangganIds).filter(id => checkKritis(validTagihan, id)).length;
+
             const showPengeluaran = isAdmin && filterWilayah === 'Semua';
             const pengeluaranBulanIni = showPengeluaran ? pengeluaran.filter(k => k.tanggal.startsWith(currentMonth)).reduce((s, k) => s + Number(k.nominal), 0) : 0;
             const labaBersih = pemasukan - pengeluaranBulanIni;
@@ -358,17 +238,29 @@
                         <h2 className="text-2xl font-bold text-gray-800">Dashboard {filterWilayah !== 'Semua' ? `(${filterWilayah})` : ''}</h2>
                         <div className="flex gap-2 items-center">
                             <label className="text-sm font-medium text-gray-600 hidden md:block">Filter Wilayah:</label>
-                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm" disabled={isPetugasLocked}>
+                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm" disabled={isPetugasLocked && userWilayahList.length <= 1}>
                                 {dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? (isPetugasLocked ? 'Semua Wilayah Tugas' : 'Semua Wilayah') : w}</option>)}
                             </select>
                         </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Pelanggan Aktif</p><p className="text-2xl font-bold text-gray-800">{pelangganAktif}</p></div><div className="bg-blue-50 p-3 rounded-full"><i className="fas fa-users text-2xl text-blue-500"></i></div></div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {/* Box Peringatan Kritis */}
+                        <div className="bg-red-50 border-l-4 border-red-600 p-5 rounded-xl shadow-sm flex justify-between items-center lg:col-span-3">
+                            <div>
+                                <p className="text-sm font-bold text-red-800 mb-1"><i className="fas fa-exclamation-triangle mr-1"></i> STATUS KRITIS (Wajib Ditagih/Ditegur)</p>
+                                <p className="text-xs text-red-600">Pelanggan dengan tunggakan lebih dari 3 bulan ATAU nominal lebih dari Rp 350.000.</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-3xl font-black text-red-700 animate-pulse">{pelangganKritisCount}</p>
+                                <p className="text-[10px] font-bold text-red-500 uppercase">Orang</p>
+                            </div>
+                        </div>
+
                         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Pemasukan Bulan Ini</p><p className="text-xl font-bold text-green-600">{formatRp(pemasukan)}</p></div><div className="bg-green-50 p-3 rounded-full"><i className="fas fa-hand-holding-usd text-2xl text-green-500"></i></div></div>
                         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Sisa Tagihan Bulan Ini</p><p className="text-xl font-bold text-yellow-600">{formatRp(tunggakan)}</p></div><div className="bg-yellow-50 p-3 rounded-full"><i className="fas fa-exclamation-triangle text-2xl text-yellow-500"></i></div></div>
                         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Total Seluruh Tunggakan</p><p className="text-xl font-bold text-red-600">{formatRp(totalTunggakan)}</p></div><div className="bg-red-50 p-3 rounded-full"><i className="fas fa-file-invoice-dollar text-2xl text-red-500"></i></div></div>
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Pelanggan Aktif</p><p className="text-xl font-bold text-gray-800">{pelangganAktif} Orang</p></div><div className="bg-blue-50 p-3 rounded-full"><i className="fas fa-users text-2xl text-blue-500"></i></div></div>
                         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Keluhan Menunggu</p><p className="text-xl font-bold text-orange-600">{keluhanPending} Laporan</p></div><div className="bg-orange-50 p-3 rounded-full"><i className="fas fa-tools text-2xl text-orange-500"></i></div></div>
                         
                         {showPengeluaran && (
@@ -396,7 +288,451 @@
         }
 
         // ==========================================
-        // BUKU KAS / PENGELUARAN
+        // 3. KOMPONEN PELANGGAN MANAGER
+        // ==========================================
+        function PelangganManager({ data, showToast, isAdmin, currentUser }) {
+            const [modal, setModal] = useState(false); const [editId, setEditId] = useState(null);
+            
+            const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
+            const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
+            const [filterWilayah, setFilterWilayah] = useState(isPetugasLocked ? userWilayahList[0] || 'Semua' : 'Semua');
+            
+            const allWilayahs = [...new Set(data.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
+            const dropdownWilayahs = isPetugasLocked ? ['Semua', ...userWilayahList] : ['Semua', ...allWilayahs];
+
+            const [form, setForm] = useState({ no: '', nama: '', wilayah: '', rt: '', rw: '', status: 'Aktif', hp: '' });
+            const [search, setSearch] = useState(''); const [filterStatus, setFilterStatus] = useState('Semua'); const [sortBy, setSortBy] = useState('noPelanggan');
+
+            const openModal = (p = null) => {
+                if(p) { setEditId(p.id); setForm({ no: p.noPelanggan, nama: p.nama, wilayah: p.wilayah || '', rt: p.rt, rw: p.rw, status: p.status, hp: p.noHp }); }
+                else { setEditId(null); setForm({ no: '', nama: '', wilayah: isPetugasLocked ? userWilayahList[0] || '' : '', rt: '', rw: '', status: 'Aktif', hp: '' }); }
+                setModal(true);
+            };
+
+            const simpan = async (e) => {
+                e.preventDefault(); const payload = { noPelanggan: form.no, nama: form.nama, wilayah: form.wilayah, rt: form.rt, rw: form.rw, status: form.status, noHp: form.hp };
+                try { if (editId) await DB_PUSAT.collection('pelanggan').doc(editId).update(payload); else await DB_PUSAT.collection('pelanggan').add(payload);
+                setModal(false); showToast('Data Pelanggan Tersimpan'); } catch(err) { alert(err.message); }
+            };
+
+            const hapus = async (id) => { 
+                if(!isAdmin) return alert("Hanya Admin yang bisa menghapus data!");
+                if(window.confirm('Yakin ingin menghapus pelanggan ini? (Semua tagihan historisnya akan diabaikan)')) {
+                    await DB_PUSAT.collection('pelanggan').doc(id).delete(); showToast('Data Dihapus');
+                }
+            };
+
+            const handleFileUpload = (e) => {
+                const file = e.target.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const text = event.target.result; const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
+                    if (rows.length < 2) return alert('Format file kosong atau salah.');
+                    const delimiter = rows[0].includes(';') ? ';' : ','; 
+                    const isNewFormat = rows[0].toLowerCase().includes('wilayah');
+                    let successCount = 0;
+                    
+                    for (let i = 1; i < rows.length; i++) {
+                        const cols = rows[i].split(delimiter).map(c => c.replace(/^"|"$/g, '').trim());
+                        if (cols.length >= 2) {
+                            let payload = {};
+                            if (isNewFormat) {
+                                payload = { noPelanggan: cols[0] || '', nama: cols[1] || '', wilayah: cols[2] || '', rt: cols[3] || '', rw: cols[4] || '', status: (cols[5] && cols[5].toLowerCase().includes('tidak')) ? 'Tidak Aktif' : 'Aktif', noHp: cols[6] || '' };
+                            } else {
+                                payload = { noPelanggan: cols[0] || '', nama: cols[1] || '', wilayah: '', rt: cols[2] || '', rw: cols[3] || '', status: (cols[4] && cols[4].toLowerCase().includes('tidak')) ? 'Tidak Aktif' : 'Aktif', noHp: cols[5] || '' };
+                            }
+                            await DB_PUSAT.collection('pelanggan').add(payload); successCount++;
+                        }
+                    }
+                    showToast(`${successCount} Pelanggan Diimport!`); e.target.value = null;
+                }; reader.readAsText(file);
+            };
+
+            const downloadCSV = () => {
+                let csvContent = "NoPelanggan;Nama;Wilayah;RT;RW;Status;NoHp\n";
+                filteredData.forEach(p => { csvContent += `"${p.noPelanggan}";"${p.nama}";"${p.wilayah || ''}";"${p.rt}";"${p.rw}";"${p.status}";"${p.noHp}"\n`; });
+                const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob);
+                const link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "Data_Pelanggan.csv");
+                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            };
+
+            const filteredData = data
+                .filter(p => {
+                    if (isPetugasLocked) {
+                        if (filterWilayah === 'Semua') return userWilayahList.includes(p.wilayah);
+                        return p.wilayah === filterWilayah;
+                    }
+                    return filterWilayah === 'Semua' || p.wilayah === filterWilayah;
+                })
+                .filter(p => filterStatus === 'Semua' || p.status === filterStatus)
+                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
+                .sort((a, b) => {
+                    if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
+                    if (sortBy === 'wilayah') return (a.wilayah || '').localeCompare(b.wilayah || '', undefined, {numeric: true, sensitivity: 'base'});
+                    if (sortBy === 'rtRw') return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true, sensitivity: 'base'}); return 0;
+                });
+
+            return (
+                <div className="space-y-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
+                        <h2 className="text-2xl font-bold text-gray-800">Pelanggan</h2>
+                        <div className="flex flex-wrap gap-2 w-full md:w-auto items-center">
+                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm" disabled={isPetugasLocked && userWilayahList.length <= 1}>
+                                {dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? (isPetugasLocked ? 'Semua Wilayah Tugas' : 'Semua Wilayah') : w}</option>)}
+                            </select>
+                            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
+                                <option value="Semua">Semua Status</option><option value="Aktif">Aktif</option><option value="Tidak Aktif">Tidak Aktif</option>
+                            </select>
+                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white hidden md:inline-block">
+                                <option value="noPelanggan">Urut: No. Pelanggan</option><option value="wilayah">Urut: Wilayah</option><option value="rtRw">Urut: RT / RW</option>
+                            </select>
+                            <div className="relative flex-1 md:w-40"><i className="fas fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg outline-none text-sm"/></div>
+                            
+                            {isAdmin && <button onClick={()=>openModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm shadow-sm"><i className="fas fa-user-plus md:mr-2"></i> <span className="hidden md:inline">Tambah</span></button>}
+                            
+                            {isAdmin && <div className="flex bg-white rounded-lg p-1 border shadow-sm">
+                                <div className="relative overflow-hidden inline-block border-r pr-1"><input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" title="Import CSV" /><button className="text-green-600 hover:bg-green-50 px-3 py-1.5 rounded text-sm flex items-center pointer-events-none"><i className="fas fa-file-import md:mr-2"></i> <span className="hidden md:inline">Import</span></button></div>
+                                <button onClick={downloadCSV} className="text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded text-sm ml-1" title="Download Data"><i className="fas fa-file-download md:mr-2"></i> <span className="hidden md:inline">Export</span></button>
+                            </div>}
+                        </div>
+                    </div>
+                    
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+                        <table className="w-full text-sm text-left whitespace-nowrap"><thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">No.</th><th className="p-4">Nama</th><th className="p-4">Wilayah</th><th className="p-4">RT/RW</th><th className="p-4">No HP</th><th className="p-4">Status</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">
+                                {filteredData.map(p => (
+                                    <tr key={p.id} className="hover:bg-gray-50">
+                                        <td className="p-4 font-medium">{p.noPelanggan}</td><td className="p-4">{p.nama}</td><td className="p-4">{p.wilayah || '-'}</td><td className="p-4">{p.rt}/{p.rw}</td><td className="p-4">{p.noHp}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-semibold ${p.status==='Aktif'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{p.status}</span></td>
+                                        <td className="p-4 text-center space-x-3">
+                                            <button onClick={()=>openModal(p)} className="text-blue-500 hover:text-blue-700 p-1"><i className="fas fa-edit text-base"></i></button>
+                                            {isAdmin && <button onClick={()=>hapus(p.id)} className="text-red-500 hover:text-red-700 p-1"><i className="fas fa-trash text-base"></i></button>}
+                                        </td>
+                                    </tr>
+                                ))}
+                                {filteredData.length === 0 && <tr><td colSpan="7" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
+                        </tbody></table>
+                    </div>
+
+                    {modal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
+                                <h3 className="font-bold text-xl mb-5 text-gray-800">{editId ? 'Edit Data Pelanggan' : 'Tambah Pelanggan Baru'}</h3>
+                                <div className="space-y-4 mb-6">
+                                    <div className="grid grid-cols-2 gap-4"><div><label className="text-xs font-medium text-gray-600 block mb-1">No Pelanggan</label><input value={form.no} onChange={e=>setForm({...form, no:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div><div><label className="text-xs font-medium text-gray-600 block mb-1">No HP</label><input value={form.hp} onChange={e=>setForm({...form, hp:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none"/></div></div>
+                                    <div><label className="text-xs font-medium text-gray-600 block mb-1">Nama Lengkap</label><input value={form.nama} onChange={e=>setForm({...form, nama:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
+                                    <div><label className="text-xs font-medium text-gray-600 block mb-1">Wilayah / Blok / Dusun</label><input value={form.wilayah} onChange={e=>setForm({...form, wilayah:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Cth: Dusun Krajan" disabled={isPetugasLocked} /></div>
+                                    <div className="grid grid-cols-3 gap-4"><div><label className="text-xs font-medium text-gray-600 block mb-1">RT</label><input value={form.rt} onChange={e=>setForm({...form, rt:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" /></div><div><label className="text-xs font-medium text-gray-600 block mb-1">RW</label><input value={form.rw} onChange={e=>setForm({...form, rw:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" /></div><div><label className="text-xs font-medium text-gray-600 block mb-1">Status</label><select value={form.status} onChange={e=>setForm({...form, status:e.target.value})} className="border p-2 w-full rounded outline-none"><option>Aktif</option><option>Tidak Aktif</option></select></div></div>
+                                </div>
+                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-5 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Simpan</button></div>
+                            </form>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ==========================================
+        // 4. KOMPONEN TAGIHAN MANAGER
+        // ==========================================
+        function TagihanManager({ pelanggan, tagihan, settings, showToast, isAdmin, currentUser }) {
+            const [periode, setPeriode] = useState(new Date().toISOString().slice(0, 7));
+            
+            const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
+            const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
+            const [filterWilayah, setFilterWilayah] = useState(isPetugasLocked ? userWilayahList[0] || 'Semua' : 'Semua');
+            
+            const allWilayahs = [...new Set(pelanggan.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
+            const dropdownWilayahs = isPetugasLocked ? ['Semua', ...userWilayahList] : ['Semua', ...allWilayahs];
+
+            const [search, setSearch] = useState(''); const [filterStatus, setFilterStatus] = useState('Semua'); const [sortBy, setSortBy] = useState('noPelanggan');
+            const [modal, setModal] = useState(false); const [selP, setSelP] = useState(null); const [existT, setExistT] = useState(null);
+            const [mAwal, setMAwal] = useState(''); const [mAkhir, setMAkhir] = useState('');
+            const [payModal, setPayModal] = useState(false); const [payNominal, setPayNominal] = useState('');
+
+            const kubik = Math.max(0, Number(mAkhir) - Number(mAwal));
+            const totalHitung = (kubik * settings.tarif) + settings.beban;
+
+            const filteredPelanggan = pelanggan
+                .filter(p => p.status === 'Aktif' || tagihan.some(t => t.idPelanggan === p.id && t.periode === periode))
+                .filter(p => {
+                    if (isPetugasLocked) {
+                        if (filterWilayah === 'Semua') return userWilayahList.includes(p.wilayah);
+                        return p.wilayah === filterWilayah;
+                    }
+                    return filterWilayah === 'Semua' || p.wilayah === filterWilayah;
+                })
+                .filter(p => {
+                    const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
+                    
+                    if(filterStatus === 'Semua') return true;
+                    if(filterStatus === 'KRITIS') return checkKritis(tagihan, p.id);
+                    
+                    const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
+                    if(filterStatus === 'LUNAS') return totalHutang <= 0 && t;
+                    if(filterStatus === 'BELUM') return totalHutang > 0 && (!t || t.status === 'Belum Terbayar');
+                    if(filterStatus === 'NYICIL') return t && getTerbayar(t) > 0 && getSisa(t) > 0;
+                    return true;
+                })
+                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
+                .sort((a, b) => {
+                    if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
+                    if (sortBy === 'wilayah') return (a.wilayah || '').localeCompare(b.wilayah || '', undefined, {numeric: true, sensitivity: 'base'});
+                    if (sortBy === 'rtRw') return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true, sensitivity: 'base'}); return 0;
+                });
+
+            const validTagihanForSummary = tagihan.filter(t => t.periode === periode && filteredPelanggan.some(p => p.id === t.idPelanggan));
+            const summaryTotal = validTagihanForSummary.reduce((s, t) => s + t.total, 0);
+            const summaryLunas = validTagihanForSummary.reduce((s, t) => s + getTerbayar(t), 0);
+            const summaryBelum = validTagihanForSummary.reduce((s, t) => s + getSisa(t), 0);
+
+            const openTagihan = (p) => {
+                const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
+                setSelP(p); setExistT(t);
+                if(t) { setMAwal(t.meterAwal); setMAkhir(t.meterAkhir); } 
+                else { 
+                    const [y, m] = periode.split('-'); let prevM = parseInt(m) - 1; let prevY = parseInt(y);
+                    if(prevM === 0) { prevM = 12; prevY -= 1; }
+                    const tLalu = tagihan.find(x => x.idPelanggan === p.id && x.periode === `${prevY}-${prevM.toString().padStart(2, '0')}`);
+                    setMAwal(tLalu ? tLalu.meterAkhir : '0'); setMAkhir(''); 
+                } setModal(true);
+            };
+
+            const simpanTagihan = async (e) => {
+                e.preventDefault();
+                const payload = { idPelanggan: selP.id, periode, meterAwal: Number(mAwal), meterAkhir: Number(mAkhir), total: totalHitung, terbayar: existT ? getTerbayar(existT) : 0, status: existT ? existT.status : 'Belum Terbayar' };
+                try { if(existT) await DB_PUSAT.collection('tagihan').doc(existT.id).update(payload); else await DB_PUSAT.collection('tagihan').add(payload);
+                setModal(false); showToast('Data Meteran Tersimpan'); } catch(err) { alert(err.message); }
+            };
+
+            const hapusTagihan = async (id) => { 
+                if(!isAdmin) return alert("Hanya Admin yang bisa menghapus tagihan!");
+                if(window.confirm('Hapus tagihan bulan ini secara permanen?')) { try { await DB_PUSAT.collection('tagihan').doc(id).delete(); setModal(false); showToast('Tagihan Dihapus'); } catch(err) { alert(err.message); } } 
+            };
+
+            const openPayModal = (p) => { setSelP(p); setPayNominal(''); setPayModal(true); };
+
+            const simpanPayGlobal = async (e) => {
+                e.preventDefault(); 
+                let uangTersedia = Number(payNominal); 
+                const uangTersediaAsli = uangTersedia; 
+                if(uangTersedia < 0) return alert("Nominal tidak valid!");
+                
+                try {
+                    const currentTagihan = tagihan.find(t => t.idPelanggan === selP.id && t.periode === periode);
+                    const unpaidLain = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0 && t.periode !== periode).sort((a,b)=>a.periode.localeCompare(b.periode));
+                    
+                    const sisaCurrent = currentTagihan ? getSisa(currentTagihan) : 0;
+                    const totalHutangKeseluruhan = sisaCurrent + unpaidLain.reduce((s,t)=>s+getSisa(t), 0);
+                    const kembalianAsli = Math.max(0, uangTersediaAsli - totalHutangKeseluruhan);
+                    const targetTagihanId = currentTagihan ? currentTagihan.id : (unpaidLain.length > 0 ? unpaidLain[unpaidLain.length-1].id : null);
+
+                    if (currentTagihan && uangTersedia > 0) {
+                        if (sisaCurrent > 0) {
+                            const bayarSini = Math.min(uangTersedia, sisaCurrent);
+                            const isTarget = currentTagihan.id === targetTagihanId;
+                            await DB_PUSAT.collection('tagihan').doc(currentTagihan.id).update({ 
+                                terbayar: getTerbayar(currentTagihan) + bayarSini, 
+                                status: (getTerbayar(currentTagihan) + bayarSini) >= currentTagihan.total ? 'Terbayar' : 'Belum Terbayar',
+                                ...(isTarget && { uangDiserahkan: uangTersediaAsli, kembalian: kembalianAsli })
+                            });
+                            uangTersedia -= bayarSini;
+                        } else if (currentTagihan.id === targetTagihanId) {
+                            await DB_PUSAT.collection('tagihan').doc(currentTagihan.id).update({ uangDiserahkan: uangTersediaAsli, kembalian: kembalianAsli });
+                        }
+                    }
+
+                    if (uangTersedia > 0) {
+                        for(let t of unpaidLain) {
+                            if(uangTersedia <= 0) break; 
+                            const sisaT = getSisa(t); 
+                            const bayarSini = Math.min(uangTersedia, sisaT);
+                            const isTarget = t.id === targetTagihanId;
+                            await DB_PUSAT.collection('tagihan').doc(t.id).update({ 
+                                terbayar: getTerbayar(t) + bayarSini, 
+                                status: (getTerbayar(t) + bayarSini) >= t.total ? 'Terbayar' : 'Belum Terbayar',
+                                ...(isTarget && { uangDiserahkan: uangTersediaAsli, kembalian: kembalianAsli })
+                            });
+                            uangTersedia -= bayarSini;
+                        }
+                    }
+                    
+                    setPayModal(false); setPayNominal(''); showToast('Pembayaran Berhasil Dicatat!');
+                } catch(err) { alert(err.message); }
+            };
+
+            const copyWA = (p, t) => {
+                const tunggakanLalu = getTunggakanLalu(tagihan, p.id, t.periode);
+                const totalHarusDibayar = t.total + tunggakanLalu;
+                const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
+                const isKritis = checkKritis(tagihan, p.id);
+                
+                const warningMsg = isKritis ? `\n\n⚠️ *PEMBERITAHUAN PENTING:*\nMohon maaf, tunggakan Bapak/Ibu telah melebihi batas maksimal (3 bulan / Rp 350.000). Dimohon kerjasamanya untuk segera melakukan pelunasan atau pembayaran cicilan agar terhindar dari pemutusan sementara.` : '';
+
+                const msg = `Yth. Bapak/Ibu ${p.nama},\n\nBersama pesan ini, kami sampaikan rincian tagihan air bersih ${settings.appName} untuk periode ${formatBulanTahunLengkap(t.periode)}.\n\n*Rincian Penggunaan:*\n- Meter Awal : ${t.meterAwal}\n- Meter Akhir: ${t.meterAkhir}\n- Pemakaian  : ${t.meterAkhir - t.meterAwal} m3\n\n*Tagihan Bulan Ini : ${formatRp(t.total)}*\n*Tunggakan Lalu   : ${formatRp(tunggakanLalu)}*\n*Total Tagihan    : ${formatRp(totalHarusDibayar)}*\n\nStatus: ${totalHutang <= 0 ? 'LUNAS ✅' : 'BELUM TERBAYAR ❌'}\n\nSisa Seluruh Tunggakan saat ini: ${formatRp(totalHutang)}${warningMsg}\n\nDemikian informasi ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.\n\nHormat kami,\nPengelola ${settings.appName}`;
+                copyToClipboard(msg); showToast("Pesan WA Disalin!");
+            };
+
+            const cetakStrukPC = (p, t) => {
+                const pemakaian = t.meterAkhir - t.meterAwal;
+                const tunggakanLalu = getTunggakanLalu(tagihan, p.id, t.periode);
+                const totalHarusDibayar = t.total + tunggakanLalu;
+                const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
+                const uangTunai = t.uangDiserahkan || getTerbayar(t);
+                const uangKembali = t.kembalian || 0;
+                
+                const html = `
+                    <div class="text-center"><div class="title" style="font-size: 14px;">${settings.appName}</div>${settings.appSubtitle ? `<div class="bold" style="font-size: 14px;">${settings.appSubtitle}</div>` : ''}<div style="font-size: 10px;">DESA MENONGO-SUKODADI-LAMONGAN</div></div><hr />
+                    <table style="margin-bottom: 5px;"><tr><td style="width: 50px;">NO</td><td>: ${p.noPelanggan}</td></tr><tr><td>NAMA</td><td>: ${p.nama}</td></tr>${p.wilayah ? `<tr><td>WILAYAH</td><td>: ${p.wilayah}</td></tr>` : ''}<tr><td>PERIODE</td><td>: ${formatBulanTahunSingkat(t.periode)}</td></tr></table><hr />
+                    <table><tr><td>M. AWAL</td><td class="text-right">${t.meterAwal}</td></tr><tr><td>M. AKHIR</td><td class="text-right">${t.meterAkhir}</td></tr><tr><td>PEMAKAIAN</td><td class="text-right">${pemakaian} m3</td></tr></table><hr />
+                    <table><tr><td>TAGIHAN BLN INI</td><td class="text-right">${formatRp(t.total)}</td></tr><tr><td>TUNGGAKAN LALU</td><td class="text-right">${formatRp(tunggakanLalu)}</td></tr><tr class="bold"><td>TOTAL TAGIHAN</td><td class="text-right">${formatRp(totalHarusDibayar)}</td></tr></table><hr />
+                    <table>
+                        <tr><td>DIBAYAR/TUNAI</td><td class="text-right">${formatRp(uangTunai)}</td></tr>
+                        ${uangKembali > 0 ? `<tr><td>KEMBALIAN</td><td class="text-right">${formatRp(uangKembali)}</td></tr>` : ''}
+                        <tr class="bold" style="color:red; font-size:13px;"><td>SISA TOTAL HUTANG</td><td class="text-right">${formatRp(totalHutang)}</td></tr>
+                    </table><hr />
+                    <div class="text-center" style="margin-top:8px;"><div class="bold" style="font-size:16px;">${totalHutang <= 0 ? 'LUNAS' : (getTerbayar(t) > 0 ? 'NYICIL' : 'BELUM LUNAS')}</div><div style="font-size:11px; margin-top: 4px;">TGL CETAK: ${getCurrentDate()}</div><div style="margin-top:12px; font-size:11px; font-weight:bold; border-top: 1px dashed #333; padding-top: 4px;">* BUKTI PEMBAYARAN YANG SAH *</div><div style="margin-top:4px; font-size:11px;">TERIMA KASIH</div><div style="margin-top:4px; font-size:11px;">HORMAT KAMI, PENGURUS</div></div>`;
+                printContent(html, 'receipt');
+            };
+
+            const cetakStrukHP = (p, t) => {
+                const tunggakanLalu = getTunggakanLalu(tagihan, p.id, t.periode);
+                const totalHarusDibayar = t.total + tunggakanLalu;
+                const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
+                const uangTunai = t.uangDiserahkan || getTerbayar(t);
+                const uangKembali = t.kembalian || 0;
+
+                const text = 
+`${alignCenter(settings.appName.toUpperCase())}
+${settings.appSubtitle ? alignCenter(settings.appSubtitle.toUpperCase()) + '\n' : ''}${alignCenter('DESA MENONGO-SUKODADI-LAMONGAN')}
+--------------------------------
+NO     : ${p.noPelanggan}
+NAMA   : ${p.nama}
+${p.wilayah ? `WILAYAH: ${p.wilayah}\n` : ''}PERIODE: ${formatBulanTahunSingkat(t.periode)}
+--------------------------------
+${alignLeftRight('M. AWAL', t.meterAwal)}
+${alignLeftRight('M. AKHIR', t.meterAkhir)}
+${alignLeftRight('PEMAKAIAN', (t.meterAkhir - t.meterAwal) + ' m3')}
+--------------------------------
+${alignLeftRight('TAGIHAN BLN INI', formatRp(t.total))}
+${alignLeftRight('TUNGGAKAN LALU', formatRp(tunggakanLalu))}
+${alignLeftRight('TOTAL TAGIHAN', formatRp(totalHarusDibayar))}
+--------------------------------
+${alignLeftRight('TUNAI / DIBAYAR', formatRp(uangTunai))}
+${uangKembali > 0 ? alignLeftRight('KEMBALIAN', formatRp(uangKembali)) + '\n' : ''}${alignLeftRight('SISA TOTAL HTG', formatRp(totalHutang))}
+--------------------------------
+${alignCenter(totalHutang <= 0 ? '*** LUNAS ***' : (getTerbayar(t) > 0 ? '** NYICIL **' : 'BELUM LUNAS'))}
+TGL CETAK: ${getCurrentDate()}
+
+${alignCenter('* BUKTI PEMBAYARAN SAH *')}
+${alignCenter('TERIMA KASIH')}
+${alignCenter('HORMAT KAMI,')}
+${alignCenter('PENGURUS')}
+
+`;
+                if (navigator.share) { navigator.share({ title: 'Struk Pembayaran', text: text }).catch(err => { copyToClipboard(text); showToast("Teks disalin! Paste di aplikasi printer."); }); } else { copyToClipboard(text); showToast("Teks disalin! Paste di aplikasi printer."); }
+            };
+
+            const handleCetak = (p, t) => { const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768; if (isMobile) cetakStrukHP(p, t); else cetakStrukPC(p, t); };
+
+            return (
+                <div className="space-y-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
+                        <h2 className="text-2xl font-bold text-gray-800">Tagihan & Pembayaran</h2>
+                        <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
+                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm">
+                                {dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? (isPetugasLocked ? 'Semua Wilayah Tugas' : 'Semua Wilayah') : w}</option>)}
+                            </select>
+                            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm">
+                                <option value="Semua">Semua Tagihan</option>
+                                <option value="BELUM">Belum Lunas</option>
+                                <option value="NYICIL">Nyicil (Bln Ini)</option>
+                                <option value="LUNAS">Lunas Total</option>
+                                <option value="KRITIS">⚠️ Kritis (>3 Bln / >350rb)</option>
+                            </select>
+                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm hidden md:inline-block"><option value="noPelanggan">Urut: No. Pelanggan</option><option value="wilayah">Urut: Wilayah</option><option value="rtRw">Urut: RT / RW</option></select>
+                            <div className="flex items-center space-x-2 bg-white px-3 py-1.5 border rounded-lg shadow-sm"><span className="text-sm text-gray-600">Periode:</span><input type="month" value={periode} onChange={e=>setPeriode(e.target.value)} className="outline-none text-sm font-bold text-blue-600 bg-transparent"/></div>
+                            <div className="relative flex-1 md:w-40"><i className="fas fa-search absolute left-3 top-2.5 text-gray-400 text-sm"></i><input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 border rounded-lg outline-none text-sm shadow-sm"/></div>
+                        </div>
+                    </div>
+
+                    {isAdmin && (
+                        <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4">
+                            <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Tagihan Bln Ini {filterWilayah !== 'Semua' ? `(${filterWilayah})` : ''}</p><p className="text-sm md:text-lg font-bold text-blue-900">{formatRp(summaryTotal)}</p></div>
+                            <div className="bg-green-50 border border-green-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-green-600 font-bold uppercase mb-1">Uang Masuk Bln Ini</p><p className="text-sm md:text-lg font-bold text-green-900">{formatRp(summaryLunas)}</p></div>
+                            <div className="bg-red-50 border border-red-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-red-600 font-bold uppercase mb-1">Sisa Tagihan Bln Ini</p><p className="text-sm md:text-lg font-bold text-red-900">{formatRp(summaryBelum)}</p></div>
+                        </div>
+                    )}
+
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+                        <table className="w-full text-sm text-left whitespace-nowrap"><thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">Pelanggan</th><th className="p-4">M.Awal</th><th className="p-4">M.Akhir</th><th className="p-4">Tagihan Bln Ini</th><th className="p-4">Sisa Bln Ini</th><th className="p-4 bg-red-50 text-red-700">TOTAL TUNGGAKAN</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">
+                                {filteredPelanggan.map(p => {
+                                    const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
+                                    const totalHutangKeseluruhan = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
+                                    const isKritis = checkKritis(tagihan, p.id);
+
+                                    if(!t) return <tr key={p.id} className="hover:bg-gray-50"><td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan} {p.wilayah ? `• ${p.wilayah}` : ''}</div></td><td colSpan="6" className="p-4 text-center"><button onClick={()=>openTagihan(p)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-medium shadow-sm"><i className="fas fa-plus mr-1"></i> Buat Tagihan</button></td></tr>;
+                                    return (
+                                        <tr key={p.id} className="hover:bg-gray-50">
+                                            <td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan} {p.wilayah ? `• ${p.wilayah}` : ''}</div></td><td className="p-4">{t.meterAwal}</td><td className="p-4">{t.meterAkhir}</td><td className="p-4 font-bold text-gray-700">{formatRp(t.total)}</td><td className="p-4 font-bold text-gray-500">{formatRp(getSisa(t))}</td>
+                                            <td className={`p-4 font-bold ${totalHutangKeseluruhan > 0 ? 'text-red-600 bg-red-50' : 'text-green-600'}`}>
+                                                {totalHutangKeseluruhan <= 0 ? 'LUNAS' : formatRp(totalHutangKeseluruhan)}
+                                                {isKritis && <div className="text-[10px] text-red-700 mt-1 font-black animate-pulse"><i className="fas fa-exclamation-triangle"></i> KRITIS</div>}
+                                            </td>
+                                            <td className="p-4 text-center space-x-2">
+                                                <button onClick={()=>handleCetak(p,t)} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border shadow-sm" title="Cetak Struk"><i className="fas fa-print"></i></button>
+                                                <button onClick={()=>copyWA(p,t)} className="p-2 bg-green-50 hover:bg-green-100 text-green-600 rounded border border-green-200 shadow-sm" title="Copy WA"><i className="fab fa-whatsapp"></i></button>
+                                                <button onClick={()=>openPayModal(p)} className="p-2 bg-yellow-50 hover:bg-yellow-100 text-yellow-600 rounded border border-yellow-200 shadow-sm" title="Terima Uang (Auto-Lunas Tagihan Lama)"><i className="fas fa-hand-holding-usd"></i></button>
+                                                <button onClick={()=>openTagihan(p)} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded border border-blue-200 shadow-sm" title="Edit Meteran"><i className="fas fa-edit"></i></button>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
+                                {filteredPelanggan.length === 0 && <tr><td colSpan="7" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
+                            </tbody></table>
+                    </div>
+
+                    {/* MODAL 1: INPUT/EDIT METERAN TAGIHAN */}
+                    {modal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={simpanTagihan} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                                <h3 className="font-bold text-lg mb-1 text-gray-800">Data Tagihan Meteran</h3><p className="text-sm text-gray-500 mb-4">{selP.nama} - {formatBulanTahunSingkat(periode)}</p>
+                                <div className="flex gap-3 mb-4"><div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Awal</label><input type="number" min="0" value={mAwal} onChange={e=>setMAwal(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div><div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Akhir</label><input type="number" min={mAwal} value={mAkhir} onChange={e=>setMAkhir(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div></div>
+                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mb-6 text-sm text-gray-700 space-y-1"><div className="flex justify-between"><span>Pemakaian:</span><span>{kubik} m3</span></div><div className="flex justify-between"><span>Tarif ({formatRp(settings.tarif)}):</span><span>{formatRp(kubik * settings.tarif)}</span></div><div className="flex justify-between pb-2 border-b border-blue-200"><span>Beban Tetap:</span><span>{formatRp(settings.beban)}</span></div><div className="flex justify-between font-bold text-blue-900 pt-1 text-lg"><span>Total Tagihan:</span><span>{formatRp(totalHitung)}</span></div></div>
+                                <div className="flex justify-end gap-3 w-full">{existT && isAdmin && <button type="button" onClick={()=>hapusTagihan(existT.id)} className="mr-auto px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200" title="Hapus Tagihan Bulan Ini"><i className="fas fa-trash"></i></button>}<button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow font-medium">Simpan Meteran</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* MODAL 2: PEMBAYARAN GLOBAL (KALKULATOR KEMBALIAN) */}
+                    {payModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={simpanPayGlobal} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                                <h3 className="font-bold text-lg mb-1 text-gray-800">Terima Pembayaran</h3><p className="text-sm text-gray-500 mb-4">{selP.nama}</p>
+                                {(() => {
+                                    const currentTagihan = tagihan.find(t => t.idPelanggan === selP.id && t.periode === periode); const sisaBulanIni = currentTagihan ? getSisa(currentTagihan) : 0;
+                                    const tunggakanLalu = getTunggakanLalu(tagihan, selP.id, periode); const tunggakanDepan = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0 && t.periode > periode).reduce((s,t)=>s+getSisa(t), 0);
+                                    const totalHutang = sisaBulanIni + tunggakanLalu + tunggakanDepan; const uangDiberikan = Number(payNominal); const kembalian = uangDiberikan > totalHutang ? uangDiberikan - totalHutang : 0;
+                                    return (
+                                        <>
+                                            <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-4 text-sm text-gray-700 space-y-1"><div className="flex justify-between"><span>Sisa Tagihan Bln Ini:</span><span>{formatRp(sisaBulanIni)}</span></div><div className="flex justify-between text-red-600"><span>Tunggakan Bln Lain:</span><span>{formatRp(tunggakanLalu + tunggakanDepan)}</span></div><div className="flex justify-between text-blue-900 border-t border-blue-200 pt-1 mt-1 font-bold text-lg"><span>Total Harus Dibayar:</span><span>{formatRp(totalHutang)}</span></div></div>
+                                            <div className="mb-6"><label className="text-xs font-medium text-gray-600 block mb-1">Uang yang Diserahkan Warga (Rp)</label><input type="number" min="0" value={payNominal} onChange={e=>setPayNominal(e.target.value)} className="border p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-xl font-bold text-green-700 text-center" placeholder="0" required/>
+                                                {/* FITUR KALKULATOR KEMBALIAN */}
+                                                {kembalian > 0 && (<div className="bg-green-50 border border-green-200 text-green-800 p-3 rounded-lg mt-3 text-center animate-pulse"><span className="text-xs block font-bold">UANG KEMBALIAN:</span><span className="text-2xl font-black">{formatRp(kembalian)}</span></div>)}
+                                                <div className="flex justify-between mt-2"><button type="button" onClick={()=>setPayNominal(0)} className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">Kosongkan</button><button type="button" onClick={()=>setPayNominal(totalHutang)} className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200 font-bold">Uang Pas / Lunas</button></div>
+                                            </div>
+                                            <p className="text-[10px] text-gray-400 mb-4 text-center leading-tight">Uang akan diprioritaskan memotong tagihan <strong>bulan ini</strong> terlebih dahulu, sisanya melunasi tunggakan lain.</p>
+                                        </>
+                                    );
+                                })()}
+                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setPayModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow font-bold">Proses Bayar</button></div>
+                            </form>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ==========================================
+        // 5. KOMPONEN PENGELUARAN MANAGER
         // ==========================================
         function PengeluaranManager({ data, showToast }) {
             const [modal, setModal] = useState(false); 
@@ -452,7 +788,7 @@
         }
 
         // ==========================================
-        // MANAJEMEN KELUHAN & PERBAIKAN
+        // 6. KOMPONEN KELUHAN & PERBAIKAN
         // ==========================================
         function KeluhanManager({ data, pelanggan, showToast, isAdmin, currentUser }) {
             const [modal, setModal] = useState(false); 
@@ -460,7 +796,6 @@
             const [form, setForm] = useState({ tanggal: getCurrentDateYMD(), idPelanggan: '', keluhan: '', status: 'Menunggu', keterangan: '' });
             const [filterStatus, setFilterStatus] = useState('Semua');
             
-            // Logika Multi-Wilayah untuk Petugas
             const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
             const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
             
@@ -586,440 +921,49 @@
         }
 
         // ==========================================
-        // MANAJEMEN PELANGGAN
-        // ==========================================
-        function PelangganManager({ data, showToast, isAdmin, currentUser }) {
-            const [modal, setModal] = useState(false); const [editId, setEditId] = useState(null);
-            
-            // Logika Multi-Wilayah untuk Petugas
-            const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
-            const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
-            const [filterWilayah, setFilterWilayah] = useState('Semua');
-            
-            const allWilayahs = [...new Set(data.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
-            const dropdownWilayahs = isPetugasLocked ? ['Semua', ...userWilayahList] : ['Semua', ...allWilayahs];
-
-            const [form, setForm] = useState({ no: '', nama: '', wilayah: '', rt: '', rw: '', status: 'Aktif', hp: '' });
-            const [search, setSearch] = useState(''); const [filterStatus, setFilterStatus] = useState('Semua'); const [sortBy, setSortBy] = useState('noPelanggan');
-
-            const openModal = (p = null) => {
-                if(p) { setEditId(p.id); setForm({ no: p.noPelanggan, nama: p.nama, wilayah: p.wilayah || '', rt: p.rt, rw: p.rw, status: p.status, hp: p.noHp }); }
-                else { setEditId(null); setForm({ no: '', nama: '', wilayah: isPetugasLocked ? userWilayahList[0] || '' : '', rt: '', rw: '', status: 'Aktif', hp: '' }); }
-                setModal(true);
-            };
-
-            const simpan = async (e) => {
-                e.preventDefault(); const payload = { noPelanggan: form.no, nama: form.nama, wilayah: form.wilayah, rt: form.rt, rw: form.rw, status: form.status, noHp: form.hp };
-                try { if (editId) await DB_PUSAT.collection('pelanggan').doc(editId).update(payload); else await DB_PUSAT.collection('pelanggan').add(payload);
-                setModal(false); showToast('Data Pelanggan Tersimpan'); } catch(err) { alert(err.message); }
-            };
-
-            const hapus = async (id) => { 
-                if(!isAdmin) return alert("Hanya Admin yang bisa menghapus data!");
-                if(window.confirm('Yakin ingin menghapus pelanggan ini? (Semua tagihan historisnya akan diabaikan)')) {
-                    await DB_PUSAT.collection('pelanggan').doc(id).delete(); showToast('Data Dihapus');
-                }
-            };
-
-            const handleFileUpload = (e) => {
-                const file = e.target.files[0]; if (!file) return;
-                const reader = new FileReader();
-                reader.onload = async (event) => {
-                    const text = event.target.result; const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
-                    if (rows.length < 2) return alert('Format file kosong atau salah.');
-                    const delimiter = rows[0].includes(';') ? ';' : ','; 
-                    const isNewFormat = rows[0].toLowerCase().includes('wilayah');
-                    let successCount = 0;
-                    
-                    for (let i = 1; i < rows.length; i++) {
-                        const cols = rows[i].split(delimiter).map(c => c.replace(/^"|"$/g, '').trim());
-                        if (cols.length >= 2) {
-                            let payload = {};
-                            if (isNewFormat) {
-                                payload = { noPelanggan: cols[0] || '', nama: cols[1] || '', wilayah: cols[2] || '', rt: cols[3] || '', rw: cols[4] || '', status: (cols[5] && cols[5].toLowerCase().includes('tidak')) ? 'Tidak Aktif' : 'Aktif', noHp: cols[6] || '' };
-                            } else {
-                                payload = { noPelanggan: cols[0] || '', nama: cols[1] || '', wilayah: '', rt: cols[2] || '', rw: cols[3] || '', status: (cols[4] && cols[4].toLowerCase().includes('tidak')) ? 'Tidak Aktif' : 'Aktif', noHp: cols[5] || '' };
-                            }
-                            await DB_PUSAT.collection('pelanggan').add(payload); successCount++;
-                        }
-                    }
-                    showToast(`${successCount} Pelanggan Diimport!`); e.target.value = null;
-                }; reader.readAsText(file);
-            };
-
-            const downloadCSV = () => {
-                let csvContent = "NoPelanggan;Nama;Wilayah;RT;RW;Status;NoHp\n";
-                filteredData.forEach(p => { csvContent += `"${p.noPelanggan}";"${p.nama}";"${p.wilayah || ''}";"${p.rt}";"${p.rw}";"${p.status}";"${p.noHp}"\n`; });
-                const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob);
-                const link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "Data_Pelanggan.csv");
-                document.body.appendChild(link); link.click(); document.body.removeChild(link);
-            };
-
-            const filteredData = data
-                .filter(p => {
-                    if (isPetugasLocked) {
-                        if (filterWilayah === 'Semua') return userWilayahList.includes(p.wilayah);
-                        return p.wilayah === filterWilayah;
-                    }
-                    return filterWilayah === 'Semua' || p.wilayah === filterWilayah;
-                })
-                .filter(p => filterStatus === 'Semua' || p.status === filterStatus)
-                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
-                .sort((a, b) => {
-                    if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
-                    if (sortBy === 'wilayah') return (a.wilayah || '').localeCompare(b.wilayah || '', undefined, {numeric: true, sensitivity: 'base'});
-                    if (sortBy === 'rtRw') return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true, sensitivity: 'base'}); return 0;
-                });
-
-            return (
-                <div className="space-y-4">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Pelanggan</h2>
-                        <div className="flex flex-wrap gap-2 w-full md:w-auto items-center">
-                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm">
-                                {dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? (isPetugasLocked ? 'Semua Wilayah Tugas' : 'Semua Wilayah') : w}</option>)}
-                            </select>
-                            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white">
-                                <option value="Semua">Semua Status</option><option value="Aktif">Aktif</option><option value="Tidak Aktif">Tidak Aktif</option>
-                            </select>
-                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white hidden md:inline-block">
-                                <option value="noPelanggan">Urut: No. Pelanggan</option><option value="wilayah">Urut: Wilayah</option><option value="rtRw">Urut: RT / RW</option>
-                            </select>
-                            <div className="relative flex-1 md:w-40"><i className="fas fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg outline-none text-sm"/></div>
-                            
-                            {isAdmin && <button onClick={()=>openModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm shadow-sm"><i className="fas fa-user-plus md:mr-2"></i> <span className="hidden md:inline">Tambah</span></button>}
-                            
-                            {isAdmin && <div className="flex bg-white rounded-lg p-1 border shadow-sm">
-                                <div className="relative overflow-hidden inline-block border-r pr-1"><input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" title="Import CSV" /><button className="text-green-600 hover:bg-green-50 px-3 py-1.5 rounded text-sm flex items-center pointer-events-none"><i className="fas fa-file-import md:mr-2"></i> <span className="hidden md:inline">Import</span></button></div>
-                                <button onClick={downloadCSV} className="text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded text-sm ml-1" title="Download Data"><i className="fas fa-file-download md:mr-2"></i> <span className="hidden md:inline">Export</span></button>
-                            </div>}
-                        </div>
-                    </div>
-                    
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-                        <table className="w-full text-sm text-left whitespace-nowrap"><thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">No.</th><th className="p-4">Nama</th><th className="p-4">Wilayah</th><th className="p-4">RT/RW</th><th className="p-4">No HP</th><th className="p-4">Status</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">
-                                {filteredData.map(p => (
-                                    <tr key={p.id} className="hover:bg-gray-50">
-                                        <td className="p-4 font-medium">{p.noPelanggan}</td><td className="p-4">{p.nama}</td><td className="p-4">{p.wilayah || '-'}</td><td className="p-4">{p.rt}/{p.rw}</td><td className="p-4">{p.noHp}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-semibold ${p.status==='Aktif'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{p.status}</span></td>
-                                        <td className="p-4 text-center space-x-3">
-                                            <button onClick={()=>openModal(p)} className="text-blue-500 hover:text-blue-700 p-1"><i className="fas fa-edit text-base"></i></button>
-                                            {isAdmin && <button onClick={()=>hapus(p.id)} className="text-red-500 hover:text-red-700 p-1"><i className="fas fa-trash text-base"></i></button>}
-                                        </td>
-                                    </tr>
-                                ))}
-                                {filteredData.length === 0 && <tr><td colSpan="7" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
-                        </tbody></table>
-                    </div>
-
-                    {modal && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
-                                <h3 className="font-bold text-xl mb-5 text-gray-800">{editId ? 'Edit Data Pelanggan' : 'Tambah Pelanggan Baru'}</h3>
-                                <div className="space-y-4 mb-6">
-                                    <div className="grid grid-cols-2 gap-4"><div><label className="text-xs font-medium text-gray-600 block mb-1">No Pelanggan</label><input value={form.no} onChange={e=>setForm({...form, no:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div><div><label className="text-xs font-medium text-gray-600 block mb-1">No HP</label><input value={form.hp} onChange={e=>setForm({...form, hp:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none"/></div></div>
-                                    <div><label className="text-xs font-medium text-gray-600 block mb-1">Nama Lengkap</label><input value={form.nama} onChange={e=>setForm({...form, nama:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div>
-                                    <div><label className="text-xs font-medium text-gray-600 block mb-1">Wilayah / Blok / Dusun</label><input value={form.wilayah} onChange={e=>setForm({...form, wilayah:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Cth: Dusun Krajan" /></div>
-                                    <div className="grid grid-cols-3 gap-4"><div><label className="text-xs font-medium text-gray-600 block mb-1">RT</label><input value={form.rt} onChange={e=>setForm({...form, rt:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" /></div><div><label className="text-xs font-medium text-gray-600 block mb-1">RW</label><input value={form.rw} onChange={e=>setForm({...form, rw:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" /></div><div><label className="text-xs font-medium text-gray-600 block mb-1">Status</label><select value={form.status} onChange={e=>setForm({...form, status:e.target.value})} className="border p-2 w-full rounded outline-none"><option>Aktif</option><option>Tidak Aktif</option></select></div></div>
-                                </div>
-                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-5 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Simpan</button></div>
-                            </form>
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
-        // ==========================================
-        // MANAJEMEN TAGIHAN 
-        // ==========================================
-        function TagihanManager({ pelanggan, tagihan, settings, showToast, isAdmin, currentUser }) {
-            const [periode, setPeriode] = useState(new Date().toISOString().slice(0, 7));
-            
-            const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
-            const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
-            const [filterWilayah, setFilterWilayah] = useState('Semua');
-            
-            const allWilayahs = [...new Set(pelanggan.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
-            const dropdownWilayahs = isPetugasLocked ? ['Semua', ...userWilayahList] : ['Semua', ...allWilayahs];
-
-            const [search, setSearch] = useState(''); const [filterStatus, setFilterStatus] = useState('Semua'); const [sortBy, setSortBy] = useState('noPelanggan');
-            const [modal, setModal] = useState(false); const [selP, setSelP] = useState(null); const [existT, setExistT] = useState(null);
-            const [mAwal, setMAwal] = useState(''); const [mAkhir, setMAkhir] = useState('');
-            const [payModal, setPayModal] = useState(false); const [payNominal, setPayNominal] = useState('');
-
-            const kubik = Math.max(0, Number(mAkhir) - Number(mAwal));
-            const totalHitung = (kubik * settings.tarif) + settings.beban;
-
-            const filteredPelanggan = pelanggan
-                .filter(p => p.status === 'Aktif' || tagihan.some(t => t.idPelanggan === p.id && t.periode === periode))
-                .filter(p => {
-                    if (isPetugasLocked) {
-                        if (filterWilayah === 'Semua') return userWilayahList.includes(p.wilayah);
-                        return p.wilayah === filterWilayah;
-                    }
-                    return filterWilayah === 'Semua' || p.wilayah === filterWilayah;
-                })
-                .filter(p => {
-                    const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
-                    if(filterStatus === 'Semua') return true;
-                    const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
-                    if(filterStatus === 'LUNAS') return totalHutang <= 0 && t;
-                    if(filterStatus === 'BELUM') return totalHutang > 0 && (!t || t.status === 'Belum Terbayar');
-                    if(filterStatus === 'NYICIL') return t && getTerbayar(t) > 0 && getSisa(t) > 0;
-                    return true;
-                })
-                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
-                .sort((a, b) => {
-                    if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true, sensitivity: 'base'});
-                    if (sortBy === 'wilayah') return (a.wilayah || '').localeCompare(b.wilayah || '', undefined, {numeric: true, sensitivity: 'base'});
-                    if (sortBy === 'rtRw') return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true, sensitivity: 'base'}); return 0;
-                });
-
-            // Summary metrics specifically for the currently filtered view
-            const validTagihanForSummary = tagihan.filter(t => t.periode === periode && filteredPelanggan.some(p => p.id === t.idPelanggan));
-            const summaryTotal = validTagihanForSummary.reduce((s, t) => s + t.total, 0);
-            const summaryLunas = validTagihanForSummary.reduce((s, t) => s + getTerbayar(t), 0);
-            const summaryBelum = validTagihanForSummary.reduce((s, t) => s + getSisa(t), 0);
-
-            const openTagihan = (p) => {
-                const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
-                setSelP(p); setExistT(t);
-                if(t) { setMAwal(t.meterAwal); setMAkhir(t.meterAkhir); } 
-                else { 
-                    const [y, m] = periode.split('-'); let prevM = parseInt(m) - 1; let prevY = parseInt(y);
-                    if(prevM === 0) { prevM = 12; prevY -= 1; }
-                    const tLalu = tagihan.find(x => x.idPelanggan === p.id && x.periode === `${prevY}-${prevM.toString().padStart(2, '0')}`);
-                    setMAwal(tLalu ? tLalu.meterAkhir : '0'); setMAkhir(''); 
-                } setModal(true);
-            };
-
-            const simpanTagihan = async (e) => {
-                e.preventDefault();
-                const payload = { idPelanggan: selP.id, periode, meterAwal: Number(mAwal), meterAkhir: Number(mAkhir), total: totalHitung, terbayar: existT ? getTerbayar(existT) : 0, status: existT ? existT.status : 'Belum Terbayar' };
-                try { if(existT) await DB_PUSAT.collection('tagihan').doc(existT.id).update(payload); else await DB_PUSAT.collection('tagihan').add(payload);
-                setModal(false); showToast('Data Meteran Tersimpan'); } catch(err) { alert(err.message); }
-            };
-
-            const hapusTagihan = async (id) => { 
-                if(!isAdmin) return alert("Hanya Admin yang bisa menghapus tagihan!");
-                if(window.confirm('Hapus tagihan bulan ini secara permanen?')) { try { await DB_PUSAT.collection('tagihan').doc(id).delete(); setModal(false); showToast('Tagihan Dihapus'); } catch(err) { alert(err.message); } } 
-            };
-
-            const openPayModal = (p) => { setSelP(p); setPayNominal(''); setPayModal(true); };
-
-            const simpanPayGlobal = async (e) => {
-                e.preventDefault(); 
-                let uangTersedia = Number(payNominal); 
-                const uangTersediaAsli = uangTersedia; 
-                if(uangTersedia < 0) return alert("Nominal tidak valid!");
-                
-                try {
-                    const currentTagihan = tagihan.find(t => t.idPelanggan === selP.id && t.periode === periode);
-                    const unpaidLain = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0 && t.periode !== periode).sort((a,b)=>a.periode.localeCompare(b.periode));
-                    
-                    const sisaCurrent = currentTagihan ? getSisa(currentTagihan) : 0;
-                    const totalHutangKeseluruhan = sisaCurrent + unpaidLain.reduce((s,t)=>s+getSisa(t), 0);
-                    const kembalianAsli = Math.max(0, uangTersediaAsli - totalHutangKeseluruhan);
-                    const targetTagihanId = currentTagihan ? currentTagihan.id : (unpaidLain.length > 0 ? unpaidLain[unpaidLain.length-1].id : null);
-
-                    if (currentTagihan && uangTersedia > 0) {
-                        if (sisaCurrent > 0) {
-                            const bayarSini = Math.min(uangTersedia, sisaCurrent);
-                            const isTarget = currentTagihan.id === targetTagihanId;
-                            await DB_PUSAT.collection('tagihan').doc(currentTagihan.id).update({ 
-                                terbayar: getTerbayar(currentTagihan) + bayarSini, 
-                                status: (getTerbayar(currentTagihan) + bayarSini) >= currentTagihan.total ? 'Terbayar' : 'Belum Terbayar',
-                                ...(isTarget && { uangDiserahkan: uangTersediaAsli, kembalian: kembalianAsli })
-                            });
-                            uangTersedia -= bayarSini;
-                        } else if (currentTagihan.id === targetTagihanId) {
-                            await DB_PUSAT.collection('tagihan').doc(currentTagihan.id).update({ uangDiserahkan: uangTersediaAsli, kembalian: kembalianAsli });
-                        }
-                    }
-
-                    if (uangTersedia > 0) {
-                        for(let t of unpaidLain) {
-                            if(uangTersedia <= 0) break; 
-                            const sisaT = getSisa(t); 
-                            const bayarSini = Math.min(uangTersedia, sisaT);
-                            const isTarget = t.id === targetTagihanId;
-                            await DB_PUSAT.collection('tagihan').doc(t.id).update({ 
-                                terbayar: getTerbayar(t) + bayarSini, 
-                                status: (getTerbayar(t) + bayarSini) >= t.total ? 'Terbayar' : 'Belum Terbayar',
-                                ...(isTarget && { uangDiserahkan: uangTersediaAsli, kembalian: kembalianAsli })
-                            });
-                            uangTersedia -= bayarSini;
-                        }
-                    }
-                    
-                    setPayModal(false); setPayNominal(''); showToast('Pembayaran Berhasil Dicatat!');
-                } catch(err) { alert(err.message); }
-            };
-
-            const copyWA = (p, t) => {
-                const tunggakanLalu = getTunggakanLalu(tagihan, p.id, t.periode);
-                const totalHarusDibayar = t.total + tunggakanLalu;
-                const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
-                const msg = `Yth. Bapak/Ibu ${p.nama},\n\nBersama pesan ini, kami sampaikan rincian tagihan air bersih ${settings.appName} untuk periode ${formatBulanTahunLengkap(t.periode)}.\n\n*Rincian Penggunaan:*\n- Meter Awal : ${t.meterAwal}\n- Meter Akhir: ${t.meterAkhir}\n- Pemakaian  : ${t.meterAkhir - t.meterAwal} m3\n\n*Tagihan Bulan Ini : ${formatRp(t.total)}*\n*Tunggakan Lalu   : ${formatRp(tunggakanLalu)}*\n*Total Tagihan    : ${formatRp(totalHarusDibayar)}*\n\nStatus: ${totalHutang <= 0 ? 'LUNAS ✅' : 'BELUM TERBAYAR ❌'}\n\nSisa Seluruh Tunggakan saat ini: ${formatRp(totalHutang)}\n\nDemikian informasi ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.\n\nHormat kami,\nPengelola ${settings.appName}`;
-                copyToClipboard(msg); showToast("Pesan WA Disalin!");
-            };
-
-            const cetakStrukPC = (p, t) => {
-                const pemakaian = t.meterAkhir - t.meterAwal;
-                const tunggakanLalu = getTunggakanLalu(tagihan, p.id, t.periode);
-                const totalHarusDibayar = t.total + tunggakanLalu;
-                const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
-                const uangTunai = t.uangDiserahkan || getTerbayar(t);
-                const uangKembali = t.kembalian || 0;
-                
-                const html = `
-                    <div class="text-center"><div class="title" style="font-size: 14px;">${settings.appName}</div>${settings.appSubtitle ? `<div class="bold" style="font-size: 14px;">${settings.appSubtitle}</div>` : ''}<div style="font-size: 10px;">DESA MENONGO-SUKODADI-LAMONGAN</div></div><hr />
-                    <table style="margin-bottom: 5px;"><tr><td style="width: 50px;">NO</td><td>: ${p.noPelanggan}</td></tr><tr><td>NAMA</td><td>: ${p.nama}</td></tr>${p.wilayah ? `<tr><td>WILAYAH</td><td>: ${p.wilayah}</td></tr>` : ''}<tr><td>PERIODE</td><td>: ${formatBulanTahunSingkat(t.periode)}</td></tr></table><hr />
-                    <table><tr><td>M. AWAL</td><td class="text-right">${t.meterAwal}</td></tr><tr><td>M. AKHIR</td><td class="text-right">${t.meterAkhir}</td></tr><tr><td>PEMAKAIAN</td><td class="text-right">${pemakaian} m3</td></tr></table><hr />
-                    <table><tr><td>TAGIHAN BLN INI</td><td class="text-right">${formatRp(t.total)}</td></tr><tr><td>TUNGGAKAN LALU</td><td class="text-right">${formatRp(tunggakanLalu)}</td></tr><tr class="bold"><td>TOTAL TAGIHAN</td><td class="text-right">${formatRp(totalHarusDibayar)}</td></tr></table><hr />
-                    <table>
-                        <tr><td>DIBAYAR/TUNAI</td><td class="text-right">${formatRp(uangTunai)}</td></tr>
-                        ${uangKembali > 0 ? `<tr><td>KEMBALIAN</td><td class="text-right">${formatRp(uangKembali)}</td></tr>` : ''}
-                        <tr class="bold" style="color:red; font-size:13px;"><td>SISA TOTAL HUTANG</td><td class="text-right">${formatRp(totalHutang)}</td></tr>
-                    </table><hr />
-                    <div class="text-center" style="margin-top:8px;"><div class="bold" style="font-size:16px;">${totalHutang <= 0 ? 'LUNAS' : (getTerbayar(t) > 0 ? 'NYICIL' : 'BELUM LUNAS')}</div><div style="font-size:11px; margin-top: 4px;">TGL CETAK: ${getCurrentDate()}</div><div style="margin-top:12px; font-size:11px; font-weight:bold; border-top: 1px dashed #333; padding-top: 4px;">* BUKTI PEMBAYARAN YANG SAH *</div><div style="margin-top:4px; font-size:11px;">TERIMA KASIH</div><div style="margin-top:4px; font-size:11px;">HORMAT KAMI, PENGURUS</div></div>`;
-                printContent(html, 'receipt');
-            };
-
-            const cetakStrukHP = (p, t) => {
-                const tunggakanLalu = getTunggakanLalu(tagihan, p.id, t.periode);
-                const totalHarusDibayar = t.total + tunggakanLalu;
-                const totalHutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
-                const uangTunai = t.uangDiserahkan || getTerbayar(t);
-                const uangKembali = t.kembalian || 0;
-
-                const text = 
-`${alignCenter(settings.appName.toUpperCase())}
-${settings.appSubtitle ? alignCenter(settings.appSubtitle.toUpperCase()) + '\n' : ''}${alignCenter('DESA MENONGO-SUKODADI-LAMONGAN')}
---------------------------------
-NO     : ${p.noPelanggan}
-NAMA   : ${p.nama}
-${p.wilayah ? `WILAYAH: ${p.wilayah}\n` : ''}PERIODE: ${formatBulanTahunSingkat(t.periode)}
---------------------------------
-${alignLeftRight('M. AWAL', t.meterAwal)}
-${alignLeftRight('M. AKHIR', t.meterAkhir)}
-${alignLeftRight('PEMAKAIAN', (t.meterAkhir - t.meterAwal) + ' m3')}
---------------------------------
-${alignLeftRight('TAGIHAN BLN INI', formatRp(t.total))}
-${alignLeftRight('TUNGGAKAN LALU', formatRp(tunggakanLalu))}
-${alignLeftRight('TOTAL TAGIHAN', formatRp(totalHarusDibayar))}
---------------------------------
-${alignLeftRight('TUNAI / DIBAYAR', formatRp(uangTunai))}
-${uangKembali > 0 ? alignLeftRight('KEMBALIAN', formatRp(uangKembali)) + '\n' : ''}${alignLeftRight('SISA TOTAL HTG', formatRp(totalHutang))}
---------------------------------
-${alignCenter(totalHutang <= 0 ? '*** LUNAS ***' : (getTerbayar(t) > 0 ? '** NYICIL **' : 'BELUM LUNAS'))}
-TGL CETAK: ${getCurrentDate()}
-
-${alignCenter('* BUKTI PEMBAYARAN SAH *')}
-${alignCenter('TERIMA KASIH')}
-${alignCenter('HORMAT KAMI,')}
-${alignCenter('PENGURUS')}
-
-`;
-                if (navigator.share) { navigator.share({ title: 'Struk Pembayaran', text: text }).catch(err => { copyToClipboard(text); showToast("Teks disalin! Paste di aplikasi printer."); }); } else { copyToClipboard(text); showToast("Teks disalin! Paste di aplikasi printer."); }
-            };
-
-            const handleCetak = (p, t) => { const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768; if (isMobile) cetakStrukHP(p, t); else cetakStrukPC(p, t); };
-
-            return (
-                <div className="space-y-4">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Tagihan & Pembayaran</h2>
-                        <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
-                            <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm">
-                                {dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? (isPetugasLocked ? 'Semua Wilayah Tugas' : 'Semua Wilayah') : w}</option>)}
-                            </select>
-                            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm"><option value="Semua">Semua Tagihan</option><option value="BELUM">Belum Lunas</option><option value="NYICIL">Nyicil (Bln Ini)</option><option value="LUNAS">Lunas Total</option></select>
-                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white shadow-sm hidden md:inline-block"><option value="noPelanggan">Urut: No. Pelanggan</option><option value="wilayah">Urut: Wilayah</option><option value="rtRw">Urut: RT / RW</option></select>
-                            <div className="flex items-center space-x-2 bg-white px-3 py-1.5 border rounded-lg shadow-sm"><span className="text-sm text-gray-600">Periode:</span><input type="month" value={periode} onChange={e=>setPeriode(e.target.value)} className="outline-none text-sm font-bold text-blue-600 bg-transparent"/></div>
-                            <div className="relative flex-1 md:w-40"><i className="fas fa-search absolute left-3 top-2.5 text-gray-400 text-sm"></i><input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 border rounded-lg outline-none text-sm shadow-sm"/></div>
-                        </div>
-                    </div>
-
-                    {/* Hanya Admin yang bisa melihat ringkasan uang tagihan */}
-                    {isAdmin && (
-                        <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4">
-                            <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Tagihan Bln Ini {filterWilayah !== 'Semua' ? `(${filterWilayah})` : ''}</p><p className="text-sm md:text-lg font-bold text-blue-900">{formatRp(summaryTotal)}</p></div>
-                            <div className="bg-green-50 border border-green-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-green-600 font-bold uppercase mb-1">Uang Masuk Bln Ini</p><p className="text-sm md:text-lg font-bold text-green-900">{formatRp(summaryLunas)}</p></div>
-                            <div className="bg-red-50 border border-red-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-red-600 font-bold uppercase mb-1">Sisa Tagihan Bln Ini</p><p className="text-sm md:text-lg font-bold text-red-900">{formatRp(summaryBelum)}</p></div>
-                        </div>
-                    )}
-
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-                        <table className="w-full text-sm text-left whitespace-nowrap"><thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">Pelanggan</th><th className="p-4">M.Awal</th><th className="p-4">M.Akhir</th><th className="p-4">Tagihan Bln Ini</th><th className="p-4">Sisa Bln Ini</th><th className="p-4 bg-red-50 text-red-700">TOTAL TUNGGAKAN</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">
-                                {filteredPelanggan.map(p => {
-                                    const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
-                                    const totalHutangKeseluruhan = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
-                                    if(!t) return <tr key={p.id} className="hover:bg-gray-50"><td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan} {p.wilayah ? `• ${p.wilayah}` : ''}</div></td><td colSpan="6" className="p-4 text-center"><button onClick={()=>openTagihan(p)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-medium shadow-sm"><i className="fas fa-plus mr-1"></i> Buat Tagihan</button></td></tr>;
-                                    return (
-                                        <tr key={p.id} className="hover:bg-gray-50">
-                                            <td className="p-4"><div className="font-medium">{p.nama}</div><div className="text-xs text-gray-500">{p.noPelanggan} {p.wilayah ? `• ${p.wilayah}` : ''}</div></td><td className="p-4">{t.meterAwal}</td><td className="p-4">{t.meterAkhir}</td><td className="p-4 font-bold text-gray-700">{formatRp(t.total)}</td><td className="p-4 font-bold text-gray-500">{formatRp(getSisa(t))}</td><td className={`p-4 font-bold ${totalHutangKeseluruhan > 0 ? 'text-red-600 bg-red-50' : 'text-green-600'}`}>{totalHutangKeseluruhan <= 0 ? 'LUNAS' : formatRp(totalHutangKeseluruhan)}</td>
-                                            <td className="p-4 text-center space-x-2">
-                                                <button onClick={()=>handleCetak(p,t)} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border shadow-sm" title="Cetak Struk"><i className="fas fa-print"></i></button>
-                                                <button onClick={()=>copyWA(p,t)} className="p-2 bg-green-50 hover:bg-green-100 text-green-600 rounded border border-green-200 shadow-sm" title="Copy WA"><i className="fab fa-whatsapp"></i></button>
-                                                <button onClick={()=>openPayModal(p)} className="p-2 bg-yellow-50 hover:bg-yellow-100 text-yellow-600 rounded border border-yellow-200 shadow-sm" title="Terima Uang (Auto-Lunas Tagihan Lama)"><i className="fas fa-hand-holding-usd"></i></button>
-                                                <button onClick={()=>openTagihan(p)} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded border border-blue-200 shadow-sm" title="Edit Meteran"><i className="fas fa-edit"></i></button>
-                                            </td>
-                                        </tr>
-                                    )
-                                })}
-                                {filteredPelanggan.length === 0 && <tr><td colSpan="7" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
-                            </tbody></table>
-                    </div>
-
-                    {/* MODAL 1: INPUT/EDIT METERAN TAGIHAN */}
-                    {modal && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={simpanTagihan} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
-                                <h3 className="font-bold text-lg mb-1 text-gray-800">Data Tagihan Meteran</h3><p className="text-sm text-gray-500 mb-4">{selP.nama} - {formatBulanTahunSingkat(periode)}</p>
-                                <div className="flex gap-3 mb-4"><div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Awal</label><input type="number" min="0" value={mAwal} onChange={e=>setMAwal(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div><div className="w-1/2"><label className="text-xs font-medium text-gray-600 block mb-1">Meter Akhir</label><input type="number" min={mAwal} value={mAkhir} onChange={e=>setMAkhir(e.target.value)} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500 outline-none" required/></div></div>
-                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mb-6 text-sm text-gray-700 space-y-1"><div className="flex justify-between"><span>Pemakaian:</span><span>{kubik} m3</span></div><div className="flex justify-between"><span>Tarif ({formatRp(settings.tarif)}):</span><span>{formatRp(kubik * settings.tarif)}</span></div><div className="flex justify-between pb-2 border-b border-blue-200"><span>Beban Tetap:</span><span>{formatRp(settings.beban)}</span></div><div className="flex justify-between font-bold text-blue-900 pt-1 text-lg"><span>Total Tagihan:</span><span>{formatRp(totalHitung)}</span></div></div>
-                                <div className="flex justify-end gap-3 w-full">{existT && isAdmin && <button type="button" onClick={()=>hapusTagihan(existT.id)} className="mr-auto px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200" title="Hapus Tagihan Bulan Ini"><i className="fas fa-trash"></i></button>}<button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow font-medium">Simpan Meteran</button></div>
-                            </form>
-                        </div>
-                    )}
-
-                    {/* MODAL 2: PEMBAYARAN GLOBAL (KALKULATOR KEMBALIAN) */}
-                    {payModal && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={simpanPayGlobal} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
-                                <h3 className="font-bold text-lg mb-1 text-gray-800">Terima Pembayaran</h3><p className="text-sm text-gray-500 mb-4">{selP.nama}</p>
-                                {(() => {
-                                    const currentTagihan = tagihan.find(t => t.idPelanggan === selP.id && t.periode === periode); const sisaBulanIni = currentTagihan ? getSisa(currentTagihan) : 0;
-                                    const tunggakanLalu = getTunggakanLalu(tagihan, selP.id, periode); const tunggakanDepan = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0 && t.periode > periode).reduce((s,t)=>s+getSisa(t), 0);
-                                    const totalHutang = sisaBulanIni + tunggakanLalu + tunggakanDepan; const uangDiberikan = Number(payNominal); const kembalian = uangDiberikan > totalHutang ? uangDiberikan - totalHutang : 0;
-                                    return (
-                                        <>
-                                            <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-4 text-sm text-gray-700 space-y-1"><div className="flex justify-between"><span>Sisa Tagihan Bln Ini:</span><span>{formatRp(sisaBulanIni)}</span></div><div className="flex justify-between text-red-600"><span>Tunggakan Bln Lain:</span><span>{formatRp(tunggakanLalu + tunggakanDepan)}</span></div><div className="flex justify-between text-blue-900 border-t border-blue-200 pt-1 mt-1 font-bold text-lg"><span>Total Harus Dibayar:</span><span>{formatRp(totalHutang)}</span></div></div>
-                                            <div className="mb-6"><label className="text-xs font-medium text-gray-600 block mb-1">Uang yang Diserahkan Warga (Rp)</label><input type="number" min="0" value={payNominal} onChange={e=>setPayNominal(e.target.value)} className="border p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-xl font-bold text-green-700 text-center" placeholder="0" required/>
-                                                {/* FITUR KALKULATOR KEMBALIAN */}
-                                                {kembalian > 0 && (<div className="bg-green-50 border border-green-200 text-green-800 p-3 rounded-lg mt-3 text-center animate-pulse"><span className="text-xs block font-bold">UANG KEMBALIAN:</span><span className="text-2xl font-black">{formatRp(kembalian)}</span></div>)}
-                                                <div className="flex justify-between mt-2"><button type="button" onClick={()=>setPayNominal(0)} className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">Kosongkan</button><button type="button" onClick={()=>setPayNominal(totalHutang)} className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200 font-bold">Uang Pas / Lunas</button></div>
-                                            </div>
-                                            <p className="text-[10px] text-gray-400 mb-4 text-center leading-tight">Uang akan diprioritaskan memotong tagihan <strong>bulan ini</strong> terlebih dahulu, sisanya melunasi tunggakan lain.</p>
-                                        </>
-                                    );
-                                })()}
-                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setPayModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Batal</button><button type="submit" className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow font-bold">Proses Bayar</button></div>
-                            </form>
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
-        // ==========================================
-        // MENU PENGATURAN
+        // 7. KOMPONEN PENGATURAN MANAGER
         // ==========================================
         function PengaturanManager({ settings, adminUsers, showToast }) {
-            const [formSettings, setFormSettings] = useState(settings); const [usersList, setUsersList] = useState(adminUsers);
+            const defaultPermissions = {
+                'Admin': ['dashboard', 'pelanggan', 'tagihan', 'keluhan', 'pengeluaran', 'pelaporan', 'pengaturan'],
+                'Petugas': ['pelanggan', 'tagihan', 'keluhan'],
+                'Ketua HIPPA': ['dashboard', 'pelaporan']
+            };
+
+            const [formSettings, setFormSettings] = useState(settings); 
+            const [usersList, setUsersList] = useState(adminUsers);
+            const [perms, setPerms] = useState(settings.rolePermissions || defaultPermissions);
+
+            const menuList = [
+                { id: 'dashboard', label: 'Dashboard' }, { id: 'pelanggan', label: 'Pelanggan' },
+                { id: 'tagihan', label: 'Tagihan' }, { id: 'keluhan', label: 'Keluhan' },
+                { id: 'pengeluaran', label: 'Buku Kas' }, { id: 'pelaporan', label: 'Pelaporan' },
+                { id: 'pengaturan', label: 'Pengaturan' }
+            ];
+
+            const handleTogglePerm = (role, menuId) => {
+                if (role === 'Admin' && menuId === 'pengaturan') return; 
+                setPerms(prev => {
+                    const rPerms = prev[role] || [];
+                    const newPerms = rPerms.includes(menuId) ? rPerms.filter(id => id !== menuId) : [...rPerms, menuId];
+                    return { ...prev, [role]: newPerms };
+                });
+            };
+
             const handleLogoUpload = (e) => { const file = e.target.files[0]; if(file) { const reader = new FileReader(); reader.onload = (ev) => { setFormSettings({...formSettings, logo: ev.target.result}); }; reader.readAsDataURL(file); } };
-            const simpanPengaturan = async (e) => { e.preventDefault(); try { await DB_PUSAT.collection('pengaturan').doc('konfigurasi').set({ appName: formSettings.appName, appSubtitle: formSettings.appSubtitle || '', tarif: Number(formSettings.tarif), beban: Number(formSettings.beban), logo: formSettings.logo }); showToast("Pengaturan Aplikasi Berhasil Disimpan!"); } catch(err) { alert(err.message); } };
+            
+            const simpanPengaturan = async (e) => { 
+                if(e) e.preventDefault(); 
+                try { 
+                    await DB_PUSAT.collection('pengaturan').doc('konfigurasi').set({ 
+                        appName: formSettings.appName, appSubtitle: formSettings.appSubtitle || '', 
+                        tarif: Number(formSettings.tarif), beban: Number(formSettings.beban), 
+                        logo: formSettings.logo, rolePermissions: perms 
+                    }); 
+                    showToast("Pengaturan Berhasil Disimpan!"); 
+                } catch(err) { alert(err.message); } 
+            };
+
             const tambahUser = () => setUsersList([...usersList, { id: Date.now().toString(), username: '', password: '', role: 'Petugas', wilayah: '' }]);
             const updateUser = (id, field, value) => setUsersList(usersList.map(u => u.id === id ? { ...u, [field]: value } : u));
             const hapusUser = (id) => { if(usersList.length <= 1) return alert("Minimal harus ada 1 akun Admin!"); setUsersList(usersList.filter(u => u.id !== id)); };
@@ -1039,18 +983,50 @@ ${alignCenter('PENGURUS')}
                         </div>
                         <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow font-medium"><i className="fas fa-save mr-2"></i> Simpan Pengaturan</button>
                     </form>
+
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <h3 className="text-lg font-bold text-gray-700 mb-4"><i className="fas fa-key mr-2"></i> Manajemen Hak Akses Menu</h3>
+                        <p className="text-xs text-gray-500 mb-4">Centang menu apa saja yang boleh dibuka dan dilihat oleh masing-masing jabatan.</p>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left border rounded-lg">
+                                <thead className="bg-gray-50 border-b">
+                                    <tr>
+                                        <th className="p-3">Jabatan (Role)</th>
+                                        {menuList.map(m => <th key={m.id} className="p-3 text-center text-xs font-semibold">{m.label}</th>)}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {['Admin', 'Petugas', 'Ketua HIPPA'].map(role => (
+                                        <tr key={role} className="border-b hover:bg-blue-50">
+                                            <td className="p-3 font-bold text-blue-900">{role}</td>
+                                            {menuList.map(m => (
+                                                <td key={m.id} className="p-3 text-center">
+                                                    <input type="checkbox" checked={(perms[role] || []).includes(m.id)} onChange={() => handleTogglePerm(role, m.id)} disabled={role === 'Admin' && m.id === 'pengaturan'} className="w-4 h-4 text-blue-600 rounded cursor-pointer"/>
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="mt-4 flex justify-end">
+                             <button onClick={simpanPengaturan} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow font-medium text-sm"><i className="fas fa-save mr-2"></i> Simpan Hak Akses</button>
+                        </div>
+                    </div>
+
                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                         <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-gray-700"><i className="fas fa-users-cog mr-2"></i> Akun Login (Hak Akses & Wilayah)</h3><button onClick={tambahUser} className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded border"><i className="fas fa-plus mr-1"></i> Tambah User</button></div>
-                        <p className="text-xs text-gray-500 mb-4"><b>Admin</b> memiliki akses penuh. <b>Petugas</b> bisa dikunci ke <b>beberapa wilayah</b> sekaligus dengan cara <b>memisahkan namanya dengan tanda koma</b>.</p>
+                        <p className="text-xs text-gray-500 mb-4">Setiap akun bisa diatur <b>jabatannya</b>. Khusus <b>Petugas</b> bisa dikunci ke beberapa wilayah sekaligus dengan cara <b>memisahkan namanya dengan tanda koma</b>.</p>
                         <div className="space-y-3 mb-6">
                             {usersList.map((u, i) => (
                                 <div key={u.id} className="flex flex-wrap md:flex-nowrap gap-2 items-center bg-gray-50 p-2 rounded">
                                     <span className="w-6 text-center text-sm font-bold text-gray-400">{i+1}.</span>
                                     <input type="text" placeholder="Username" value={u.username} onChange={e=>updateUser(u.id, 'username', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[100px]"/>
                                     <input type="text" placeholder="Password" value={u.password} onChange={e=>updateUser(u.id, 'password', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[100px]"/>
-                                    <select value={u.role || 'Admin'} onChange={e=>updateUser(u.id, 'role', e.target.value)} className="border p-2 rounded outline-none text-sm bg-white font-bold w-24">
+                                    <select value={u.role || 'Admin'} onChange={e=>updateUser(u.id, 'role', e.target.value)} className="border p-2 rounded outline-none text-sm bg-white font-bold w-32">
                                         <option value="Admin">Admin</option>
                                         <option value="Petugas">Petugas</option>
+                                        <option value="Ketua HIPPA">Ketua HIPPA</option>
                                     </select>
                                     {u.role === 'Petugas' && (
                                         <input type="text" placeholder="Wilayah (Pisah koma. Cth: RT 1, RT 2)" value={u.wilayah || ''} onChange={e=>updateUser(u.id, 'wilayah', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[200px]"/>
@@ -1066,7 +1042,7 @@ ${alignCenter('PENGURUS')}
         }
 
         // ==========================================
-        // PELAPORAN (DENGAN EXPORT EXCEL FULL)
+        // 8. KOMPONEN PELAPORAN
         // ==========================================
         function Pelaporan({ pelanggan, tagihan, pengeluaran, settings }) {
             const [reportType, setReportType] = useState('bulanan');
@@ -1159,6 +1135,19 @@ ${alignCenter('PENGURUS')}
                             </tbody><tfoot><tr style="background-color: #f3f4f6; font-weight: bold;"><td colspan="4" class="text-center">TOTAL AKUMULASI</td><td class="text-right">${formatRp(totalTagihan)}</td><td class="text-right">${formatRp(totalDibayar)}</td><td class="text-right" style="color:red;">${formatRp(totalSisa)}</td><td></td></tr></tfoot></table>
                     `;
                 }
+            } else if (reportType === 'pelanggan_kritis') {
+                reportTitle = `Laporan Pelanggan Status KRITIS${titleWilayah}`;
+                const pelangganKritisIds = Array.from(pelangganIds).filter(id => checkKritis(tagihan, id));
+                
+                reportHtml = `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle ? `<h4>${settings.appSubtitle}</h4>` : ''}<h3>${reportTitle}</h3></div><p>Total Pelanggan Kritis: <strong style="color:red">${pelangganKritisIds.length} Orang</strong></p>
+                    <p style="font-size:12px;">* Pelanggan dikategorikan kritis jika menunggak <strong>minimal 3 bulan</strong> ATAU total tunggakan <strong>minimal Rp 350.000</strong>.</p>
+                    <table><thead><tr><th>No</th><th>Nama</th><th>No HP/WA</th><th>Jml Bln Nunggak</th><th>Total Tunggakan</th></tr></thead><tbody>
+                    ${pelangganKritisIds.map(id => {
+                        const tags = tagihan.filter(t => t.idPelanggan === id && getSisa(t) > 0);
+                        const hutang = tags.reduce((s,t)=>s+getSisa(t), 0);
+                        return `<tr><td>${getNo(id)}</td><td>${getName(id)}</td><td>${pelanggan.find(p=>p.id===id)?.noHp || '-'}</td><td class="text-center">${tags.length} Bulan</td><td class="text-right font-bold" style="color:red">${formatRp(hutang)}</td></tr>`;
+                    }).join('')}
+                    ${pelangganKritisIds.length===0?'<tr><td colspan="5" class="text-center">Aman, tidak ada pelanggan kritis!</td></tr>':''}</tbody></table>`;
             }
 
             const downloadDatabaseFull = () => {
@@ -1193,6 +1182,7 @@ ${alignCenter('PENGURUS')}
                                 <option value="tahunan">Tahunan Kas (Rugi Laba)</option>
                                 <option value="tunggakan_bulan">Tunggakan (Perbulan)</option>
                                 <option value="tunggakan_tahun">Tunggakan (Semua Tunggakan)</option>
+                                <option value="pelanggan_kritis">🚨 Daftar Pelanggan KRITIS</option>
                                 <option value="riwayat_pelanggan">Riwayat per Pelanggan (Buku Tagihan)</option>
                             </select>
                         </div>
@@ -1217,6 +1207,161 @@ ${alignCenter('PENGURUS')}
                         </div>
                     </div>
                     <div className="bg-white p-8 rounded-xl border shadow-sm min-h-[500px] overflow-x-auto print-preview-container"><div dangerouslySetInnerHTML={{ __html: reportHtml.replace(/<table/g, '<table class="w-full border-collapse border border-gray-300"').replace(/<th/g, '<th class="border border-gray-300 bg-gray-100 p-2 text-center"').replace(/<td/g, '<td class="border border-gray-300 p-2"') }} /></div>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // 9. KOMPONEN UTAMA (APP) & INISIALISASI
+        // ==========================================
+        function App() {
+            const [firebaseUser, setFirebaseUser] = useState(null);
+            const [currentUser, setCurrentUser] = useState(() => {
+                const saved = localStorage.getItem('hipab_user');
+                return saved ? JSON.parse(saved) : null;
+            });
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+            const [toastMessage, setToastMessage] = useState(null);
+            
+            const [pelangganData, setPelangganData] = useState([]);
+            const [tagihanData, setTagihanData] = useState([]);
+            const [pengeluaranData, setPengeluaranData] = useState([]);
+            const [keluhanData, setKeluhanData] = useState([]);
+            const [adminUsers, setAdminUsers] = useState([]);
+            
+            const defaultPermissions = {
+                'Admin': ['dashboard', 'pelanggan', 'tagihan', 'keluhan', 'pengeluaran', 'pelaporan', 'pengaturan'],
+                'Petugas': ['pelanggan', 'tagihan', 'keluhan'],
+                'Ketua HIPPA': ['dashboard', 'pelaporan']
+            };
+            const [settings, setSettings] = useState({ appName: 'BUMDES SRIKOYO', appSubtitle: 'UNIT HIPAB', tarif: 1500, beban: 2000, logo: '', rolePermissions: defaultPermissions });
+
+            useEffect(() => { 
+                const initAuth = async () => { try { await auth.signInAnonymously(); } catch (err) { console.error("Auth Error", err); } };
+                initAuth();
+                const unsubscribe = auth.onAuthStateChanged(user => setFirebaseUser(user));
+                return () => unsubscribe();
+            }, []);
+
+            useEffect(() => {
+                if (!firebaseUser) return;
+                const unsubConfig = DB_PUSAT.collection('pengaturan').doc('konfigurasi').onSnapshot(doc => {
+                    if(doc.exists) setSettings(doc.data()); else DB_PUSAT.collection('pengaturan').doc('konfigurasi').set(settings);
+                });
+                const unsubUsers = DB_PUSAT.collection('pengaturan').doc('users').onSnapshot(doc => {
+                    if(doc.exists) setAdminUsers(doc.data().list || []);
+                    else {
+                        const defaultUsers = [{ id: Date.now().toString(), username: 'admin', password: 'admin123', role: 'Admin', wilayah: '' }];
+                        DB_PUSAT.collection('pengaturan').doc('users').set({ list: defaultUsers }); setAdminUsers(defaultUsers);
+                    }
+                });
+
+                if (!currentUser) return () => { unsubConfig(); unsubUsers(); };
+
+                const unsubP = DB_PUSAT.collection('pelanggan').onSnapshot(snap => setPelangganData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                const unsubT = DB_PUSAT.collection('tagihan').onSnapshot(snap => setTagihanData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                const unsubK = DB_PUSAT.collection('pengeluaran').onSnapshot(snap => setPengeluaranData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                const unsubKeluhan = DB_PUSAT.collection('keluhan').onSnapshot(snap => setKeluhanData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+
+                return () => { unsubP(); unsubT(); unsubK(); unsubKeluhan(); unsubConfig(); unsubUsers(); };
+            }, [currentUser, firebaseUser]);
+
+            const showToast = (msg) => { setToastMessage(msg); setTimeout(() => setToastMessage(null), 3000); };
+            
+            const handleLogout = () => { 
+                localStorage.removeItem('hipab_user'); 
+                setCurrentUser(null); 
+                setActiveTab('dashboard');
+            };
+
+            if (!firebaseUser) return <div className="flex h-[100dvh] items-center justify-center bg-blue-900 text-white flex-col"><i className="fas fa-circle-notch fa-spin text-5xl mb-4"></i><h2 className="text-xl font-bold">Menghubungkan Server...</h2></div>;
+            
+            if (!currentUser) return <LoginScreen users={adminUsers} settings={settings} onLogin={(userObj) => { 
+                localStorage.setItem('hipab_user', JSON.stringify(userObj)); 
+                setCurrentUser(userObj); 
+                
+                const perms = settings.rolePermissions || defaultPermissions;
+                const allowedTabs = perms[userObj.role] || [];
+                if (allowedTabs.length > 0 && !allowedTabs.includes('dashboard')) {
+                    setActiveTab(allowedTabs[0]);
+                } else {
+                    setActiveTab('dashboard');
+                }
+            }} showToast={showToast} />;
+
+            const isAdmin = currentUser.role === 'Admin';
+            
+            const hasAccess = (menuId) => {
+                const role = currentUser.role || 'Petugas';
+                const perms = settings.rolePermissions || defaultPermissions;
+                return perms[role]?.includes(menuId);
+            };
+
+            return (
+                <div className="flex h-[100dvh] overflow-hidden">
+                    {toastMessage && <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-5 py-3 rounded-lg shadow-lg flex items-center animate-bounce z-[100]"><i className="fas fa-check-circle mr-2"></i> {toastMessage}</div>}
+
+                    <aside className="hidden md:flex flex-col w-64 bg-blue-900 text-white h-full shadow-xl z-20 relative">
+                        <div className="flex flex-col items-center justify-center py-6 border-b border-blue-800">
+                            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-3 overflow-hidden p-2 text-blue-600"><LogoRenderer logo={settings.logo} className="text-3xl" /></div>
+                            <h1 className="text-lg font-bold tracking-wide text-center px-2 leading-tight">{settings.appName}</h1>
+                            {settings.appSubtitle && <p className="text-sm font-medium text-blue-200 text-center px-2 mt-1">{settings.appSubtitle}</p>}
+                            <span className="mt-3 bg-blue-800 px-3 py-1 rounded-full text-xs border border-blue-700">Login: {currentUser.username} ({currentUser.role})</span>
+                            {currentUser.wilayah && <span className="mt-1 text-[10px] text-blue-300">Akses Wilayah Terbatas</span>}
+                        </div>
+                        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+                            {hasAccess('dashboard') && <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>setActiveTab('dashboard')} />}
+                            {hasAccess('pelanggan') && <NavItem icon="fa-users" label="Pelanggan" active={activeTab==='pelanggan'} onClick={()=>setActiveTab('pelanggan')} />}
+                            {hasAccess('tagihan') && <NavItem icon="fa-file-invoice-dollar" label="Tagihan" active={activeTab==='tagihan'} onClick={()=>setActiveTab('tagihan')} />}
+                            {hasAccess('keluhan') && <NavItem icon="fa-tools" label="Keluhan & Perbaikan" active={activeTab==='keluhan'} onClick={()=>setActiveTab('keluhan')} />}
+                            {hasAccess('pengeluaran') && <NavItem icon="fa-book" label="Buku Kas (Pengeluaran)" active={activeTab==='pengeluaran'} onClick={()=>setActiveTab('pengeluaran')} />}
+                            {hasAccess('pelaporan') && <NavItem icon="fa-chart-pie" label="Pelaporan" active={activeTab==='pelaporan'} onClick={()=>setActiveTab('pelaporan')} />}
+                            {hasAccess('pengaturan') && <NavItem icon="fa-cog" label="Pengaturan" active={activeTab==='pengaturan'} onClick={()=>setActiveTab('pengaturan')} />}
+                        </nav>
+                        <div className="p-4 border-t border-blue-800"><button onClick={handleLogout} className="flex items-center justify-center w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"><i className="fas fa-sign-out-alt mr-2"></i> Keluar</button></div>
+                    </aside>
+
+                    <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50 relative">
+                        <header className="md:hidden flex items-center justify-between bg-blue-900 text-white p-4 shadow-md z-10">
+                            <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 bg-blue-800 rounded"><i className="fas fa-bars text-xl"></i></button>
+                            <div className="flex items-center font-bold">
+                                <div className="w-6 h-6 mr-2 flex items-center justify-center text-blue-300"><LogoRenderer logo={settings.logo} className="text-lg" /></div>
+                                <div className="flex flex-col"><span className="truncate max-w-[180px] leading-tight">{settings.appName}</span>{settings.appSubtitle && <span className="text-xs text-blue-200 truncate max-w-[180px] font-medium leading-tight">{settings.appSubtitle}</span>}</div>
+                            </div><div className="w-8"></div>
+                        </header>
+
+                        {isMobileMenuOpen && (
+                            <div className="md:hidden fixed inset-0 z-50 flex">
+                                <div className="bg-blue-900 w-64 h-full shadow-2xl flex flex-col transform transition-transform duration-300">
+                                    <div className="flex items-center justify-between p-4 border-b border-blue-800 text-white">
+                                        <h2 className="font-bold text-lg">Menu Utama</h2><button onClick={() => setIsMobileMenuOpen(false)} className="p-2"><i className="fas fa-times text-xl"></i></button>
+                                    </div>
+                                    <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
+                                        {hasAccess('dashboard') && <NavItem icon="fa-home" label="Dashboard" active={activeTab==='dashboard'} onClick={()=>{setActiveTab('dashboard'); setIsMobileMenuOpen(false);}} />}
+                                        {hasAccess('pelanggan') && <NavItem icon="fa-users" label="Pelanggan" active={activeTab==='pelanggan'} onClick={()=>{setActiveTab('pelanggan'); setIsMobileMenuOpen(false);}} />}
+                                        {hasAccess('tagihan') && <NavItem icon="fa-file-invoice-dollar" label="Tagihan" active={activeTab==='tagihan'} onClick={()=>{setActiveTab('tagihan'); setIsMobileMenuOpen(false);}} />}
+                                        {hasAccess('keluhan') && <NavItem icon="fa-tools" label="Keluhan & Perbaikan" active={activeTab==='keluhan'} onClick={()=>{setActiveTab('keluhan'); setIsMobileMenuOpen(false);}} />}
+                                        {hasAccess('pengeluaran') && <NavItem icon="fa-book" label="Buku Kas" active={activeTab==='pengeluaran'} onClick={()=>{setActiveTab('pengeluaran'); setIsMobileMenuOpen(false);}} />}
+                                        {hasAccess('pelaporan') && <NavItem icon="fa-chart-pie" label="Pelaporan" active={activeTab==='pelaporan'} onClick={()=>{setActiveTab('pelaporan'); setIsMobileMenuOpen(false);}} />}
+                                        {hasAccess('pengaturan') && <NavItem icon="fa-cog" label="Pengaturan" active={activeTab==='pengaturan'} onClick={()=>{setActiveTab('pengaturan'); setIsMobileMenuOpen(false);}} />}
+                                    </nav>
+                                    <div className="p-4 border-t border-blue-800"><button onClick={handleLogout} className="flex items-center justify-center w-full px-4 py-3 bg-red-600 text-white rounded"><i className="fas fa-sign-out-alt mr-2"></i> Keluar</button></div>
+                                </div>
+                                <div className="flex-1 bg-black bg-opacity-50" onClick={() => setIsMobileMenuOpen(false)}></div>
+                            </div>
+                        )}
+
+                        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8">
+                            {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard pelanggan={pelangganData} tagihan={tagihanData} pengeluaran={pengeluaranData} keluhan={keluhanData} isAdmin={isAdmin} currentUser={currentUser} />}
+                            {activeTab === 'pelanggan' && hasAccess('pelanggan') && <PelangganManager data={pelangganData} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
+                            {activeTab === 'tagihan' && hasAccess('tagihan') && <TagihanManager pelanggan={pelangganData} tagihan={tagihanData} settings={settings} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
+                            {activeTab === 'keluhan' && hasAccess('keluhan') && <KeluhanManager data={keluhanData} pelanggan={pelangganData} showToast={showToast} isAdmin={isAdmin} currentUser={currentUser} />}
+                            {activeTab === 'pengeluaran' && hasAccess('pengeluaran') && <PengeluaranManager data={pengeluaranData} showToast={showToast} />}
+                            {activeTab === 'pelaporan' && hasAccess('pelaporan') && <Pelaporan pelanggan={pelangganData} tagihan={tagihanData} pengeluaran={pengeluaranData} settings={settings} />}
+                            {activeTab === 'pengaturan' && hasAccess('pengaturan') && <PengaturanManager settings={settings} adminUsers={adminUsers} showToast={showToast} />}
+                        </main>
+                    </div>
                 </div>
             );
         }
