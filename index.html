@@ -929,7 +929,7 @@ ${alignCenter('TERIMA KASIH')}
             const defaultPermissions = {
                 'Admin': ['dashboard', 'pelanggan', 'tagihan', 'keluhan', 'pengeluaran', 'pelaporan', 'pengaturan'],
                 'Petugas': ['pelanggan', 'tagihan', 'keluhan'],
-                'Ketua HIPPA': ['dashboard', 'pelaporan']
+                'Ketua HIPAB': ['dashboard', 'pelaporan']
             };
 
             const [formSettings, setFormSettings] = useState(settings); 
@@ -1002,7 +1002,7 @@ ${alignCenter('TERIMA KASIH')}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {['Admin', 'Petugas', 'Ketua HIPPA'].map(role => (
+                                    {['Admin', 'Petugas', 'Ketua HIPAB'].map(role => (
                                         <tr key={role} className="border-b hover:bg-blue-50">
                                             <td className="p-3 font-bold text-blue-900">{role}</td>
                                             {menuList.map(m => (
@@ -1032,7 +1032,7 @@ ${alignCenter('TERIMA KASIH')}
                                     <select value={u.role || 'Admin'} onChange={e=>updateUser(u.id, 'role', e.target.value)} className="border p-2 rounded outline-none text-sm bg-white font-bold w-32">
                                         <option value="Admin">Admin</option>
                                         <option value="Petugas">Petugas</option>
-                                        <option value="Ketua HIPPA">Ketua HIPPA</option>
+                                        <option value="Ketua HIPAB">Ketua HIPAB</option>
                                     </select>
                                     {u.role === 'Petugas' && (
                                         <input type="text" placeholder="Wilayah (Pisah koma. Cth: RT 1, RT 2)" value={u.wilayah || ''} onChange={e=>updateUser(u.id, 'wilayah', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[200px]"/>
@@ -1242,7 +1242,7 @@ ${alignCenter('TERIMA KASIH')}
             const defaultPermissions = {
                 'Admin': ['dashboard', 'pelanggan', 'tagihan', 'keluhan', 'pengeluaran', 'pelaporan', 'pengaturan'],
                 'Petugas': ['pelanggan', 'tagihan', 'keluhan'],
-                'Ketua HIPPA': ['dashboard', 'pelaporan']
+                'Ketua HIPAB': ['dashboard', 'pelaporan']
             };
             const [settings, setSettings] = useState({ 
                 appName: 'BUMDES SRIKOYO', 
