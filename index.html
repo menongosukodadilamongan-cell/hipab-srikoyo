@@ -1087,13 +1087,13 @@ ${alignCenter('TERIMA KASIH')}
                     <p>Total Uang Masuk (Pemasukan): <strong style="color:green">${formatRp(pemasukan)}</strong></p>
                     ${filterWilayah === 'Semua' ? `<p>Total Belanja (Pengeluaran): <strong style="color:red">${formatRp(pengeluaranBulanIni)}</strong></p><p>Laba Bersih Bulan Ini: <strong style="color:blue">${formatRp(pemasukan - pengeluaranBulanIni)}</strong></p>` : ''}
                     <br><h4>Rincian Tagihan Air</h4>
-                    <table><thead><tr><th>No</th><th>Nama</th><th>Tagihan Bln Ini</th><th>Tunggakan Lalu</th><th>Total Dibayar</th><th>Sisa Seluruh Tunggakan</th></tr></thead><tbody>
+                    <table><thead><tr><th>No</th><th>Nama</th><th>Tagihan Bln Ini</th><th>Tunggakan Lalu</th><th>Total Dibayar</th><th>Petugas Penerima</th><th>Sisa Seluruh Tunggakan</th></tr></thead><tbody>
                     ${tags.map(t => {
                         const tunggakanLalu = getTunggakanLalu(tagihan, t.idPelanggan, filterPeriode);
                         const totalHutang = tagihan.filter(x => x.idPelanggan === t.idPelanggan).reduce((s, x) => s + getSisa(x), 0);
-                        return `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(tunggakanLalu)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right font-bold ${totalHutang>0?'color:red;':''}">${formatRp(totalHutang)}</td></tr>`;
+                        return `<tr><td>${getNo(t.idPelanggan)}</td><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(tunggakanLalu)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-center" style="font-size:10px;">${t.petugasPenagih || '-'}</td><td class="text-right font-bold ${totalHutang>0?'color:red;':''}">${formatRp(totalHutang)}</td></tr>`;
                     }).join('')}
-                    ${tags.length===0?'<tr><td colspan="6" class="text-center">Tidak ada data</td></tr>':''}</tbody></table>`;
+                    ${tags.length===0?'<tr><td colspan="7" class="text-center">Tidak ada data</td></tr>':''}</tbody></table>`;
             } else if (reportType === 'tahunan') {
                 reportTitle = `Laporan Pendapatan Tahunan${titleWilayah} - ${filterTahun}`;
                 const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
@@ -1160,12 +1160,12 @@ ${alignCenter('TERIMA KASIH')}
             }
 
             const downloadDatabaseFull = () => {
-                let csvContent = "NoPelanggan;NamaPelanggan;Wilayah;Periode;MeterAwal;MeterAkhir;Pakai(m3);TotalTagihan;TotalDibayar;SisaTunggakan;StatusLunas\n";
+                let csvContent = "NoPelanggan;NamaPelanggan;Wilayah;Periode;MeterAwal;MeterAkhir;Pakai(m3);TotalTagihan;TotalDibayar;SisaTunggakan;StatusLunas;PetugasPenagih\n";
                 const sortedTagihan = [...tagihan].sort((a,b)=> a.periode.localeCompare(b.periode));
                 sortedTagihan.forEach(t => {
                     const p = pelanggan.find(x => x.id === t.idPelanggan);
                     if(p && (filterWilayah === 'Semua' || p.wilayah === filterWilayah)) {
-                        csvContent += `"${p.noPelanggan}";"${p.nama}";"${p.wilayah || ''}";"${t.periode}";${t.meterAwal};${t.meterAkhir};${t.meterAkhir-t.meterAwal};${t.total};${getTerbayar(t)};${getSisa(t)};"${getStatusLabel(t)}"\n`;
+                        csvContent += `"${p.noPelanggan}";"${p.nama}";"${p.wilayah || ''}";"${t.periode}";${t.meterAwal};${t.meterAkhir};${t.meterAkhir-t.meterAwal};${t.total};${getTerbayar(t)};${getSisa(t)};"${getStatusLabel(t)}";"${t.petugasPenagih || ''}"\n`;
                     }
                 });
                 const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob);
