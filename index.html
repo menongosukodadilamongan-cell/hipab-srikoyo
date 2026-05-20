@@ -79,7 +79,7 @@
         };
 
         // ==========================================
-        // SISTEM PEMBAYARAN, KRITIS & BOCOR (UPDATE)
+        // SISTEM PEMBAYARAN, KRITIS & BOCOR
         // ==========================================
         const getTerbayar = (t) => {
             if (!t) return 0;
@@ -101,20 +101,14 @@
             const jumlahBulanMenunggak = tagihanBelumLunas.length;
             return (jumlahBulanMenunggak >= batasBulan || totalHutang >= batasNominal);
         };
-        // DETEKSI KEBOCORAN CERDAS
         const checkKebocoran = (semuaTagihan, idPelanggan, currentPemakaian, currentPeriode) => {
-            // Ambil histori 3 bulan ke belakang
             const tagihanLalu = semuaTagihan
                 .filter(t => t.idPelanggan === idPelanggan && t.periode < currentPeriode)
                 .sort((a,b) => b.periode.localeCompare(a.periode))
                 .slice(0, 3);
-            
             if (tagihanLalu.length === 0) return false;
-            
             const totalPemakaianLalu = tagihanLalu.reduce((sum, t) => sum + Math.max(0, t.meterAkhir - t.meterAwal), 0);
             const rataRata = totalPemakaianLalu / tagihanLalu.length;
-            
-            // Dianggap terindikasi bocor jika melonjak > 2.5x rata-rata, DAN pemakaiannya lumayan besar (>10 m3)
             return (rataRata > 0 && currentPemakaian > (rataRata * 2.5) && currentPemakaian > 10);
         };
 
@@ -440,17 +434,12 @@
             );
         }
 
-        // ==========================================
-        // 4. KOMPONEN TAGIHAN MANAGER (UPDATE: MODE CEPAT & DETEKSI BOCOR)
-        // ==========================================
         function TagihanManager({ pelanggan, tagihan, settings, showToast, isAdmin, currentUser }) {
             const [periode, setPeriode] = useState(new Date().toISOString().slice(0, 7));
-            
-            // Mode Keliling State
             const [isFastMode, setIsFastMode] = useState(false);
             const [fastInputs, setFastInputs] = useState({});
             const [isSavingMassal, setIsSavingMassal] = useState(false);
-
+            
             const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
             const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
             const [filterWilayah, setFilterWilayah] = useState(isPetugasLocked ? userWilayahList[0] || 'Semua' : 'Semua');
@@ -503,7 +492,6 @@
             const summaryLunas = validTagihanForSummary.reduce((s, t) => s + getTerbayar(t), 0);
             const summaryBelum = validTagihanForSummary.reduce((s, t) => s + getSisa(t), 0);
 
-            // Fungsi ambil meteran sebelumnya (untuk modal & mode keliling)
             const getMeterAwalPrev = (idPelanggan) => {
                 const [y, m] = periode.split('-'); let prevM = parseInt(m) - 1; let prevY = parseInt(y);
                 if(prevM === 0) { prevM = 12; prevY -= 1; }
@@ -528,7 +516,6 @@
                 setModal(false); showToast('Data Meteran Tersimpan'); } catch(err) { alert(err.message); }
             };
 
-            // SIMPAN MASSAL UNTUK MODE KELILING
             const simpanMassal = async () => {
                 setIsSavingMassal(true);
                 let count = 0;
@@ -549,13 +536,7 @@
                                 }
                             } else {
                                 await DB_PUSAT.collection('tagihan').add({
-                                    idPelanggan: p.id,
-                                    periode,
-                                    meterAwal: mAw,
-                                    meterAkhir: mAk,
-                                    total: tHitung,
-                                    terbayar: 0,
-                                    status: 'Belum Terbayar'
+                                    idPelanggan: p.id, periode, meterAwal: mAw, meterAkhir: mAk, total: tHitung, terbayar: 0, status: 'Belum Terbayar'
                                 });
                                 count++;
                             }
@@ -563,11 +544,9 @@
                     });
                     await Promise.all(promises);
                     if(count > 0) showToast(`${count} Data Meteran Berhasil Disimpan!`);
-                    setFastInputs({}); // reset
+                    setFastInputs({});
                     setIsFastMode(false);
-                } catch(err) {
-                    alert(err.message);
-                }
+                } catch(err) { alert(err.message); }
                 setIsSavingMassal(false);
             };
 
@@ -710,7 +689,6 @@ ${alignCenter('TERIMA KASIH')}
 
             return (
                 <div className="space-y-4">
-                    {/* Header & Filter */}
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
                         <h2 className="text-2xl font-bold text-gray-800">Tagihan & Pembayaran</h2>
                         <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
@@ -718,7 +696,6 @@ ${alignCenter('TERIMA KASIH')}
                                 {dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? (isPetugasLocked ? 'Semua Wilayah Tugas' : 'Semua Wilayah') : w}</option>)}
                             </select>
                             
-                            {/* Tombol Mode Cepat */}
                             <button onClick={() => setIsFastMode(!isFastMode)} className={`px-4 py-2 rounded-lg text-sm shadow-sm font-bold flex items-center transition-colors ${isFastMode ? 'bg-gray-600 hover:bg-gray-700 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
                                 <i className={`fas ${isFastMode ? 'fa-times' : 'fa-bolt'} mr-2`}></i>
                                 {isFastMode ? 'Tutup Mode Keliling' : 'Mode Keliling (Input Cepat)'}
@@ -736,7 +713,6 @@ ${alignCenter('TERIMA KASIH')}
                         </div>
                     </div>
 
-                    {/* Ringkasan Admin */}
                     {isAdmin && !isFastMode && (
                         <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4">
                             <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Tagihan Bln Ini {filterWilayah !== 'Semua' ? `(${filterWilayah})` : ''}</p><p className="text-sm md:text-lg font-bold text-blue-900">{formatRp(summaryTotal)}</p></div>
@@ -745,9 +721,7 @@ ${alignCenter('TERIMA KASIH')}
                         </div>
                     )}
 
-                    {/* PERCABANGAN MODE TABEL */}
                     {isFastMode ? (
-                        // ================== TABEL MODE KELILING (INPUT CEPAT) ==================
                         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 shadow-sm mb-4">
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
                                 <div>
@@ -803,7 +777,6 @@ ${alignCenter('TERIMA KASIH')}
                             </div>
                         </div>
                     ) : (
-                        // ================== TABEL MODE NORMAL (DETAIL & PEMBAYARAN) ==================
                         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
                             <table className="w-full text-sm text-left whitespace-nowrap"><thead className="bg-gray-50 text-gray-600 border-b"><tr><th className="p-4">Pelanggan</th><th className="p-4">M.Awal</th><th className="p-4">M.Akhir (Bocor)</th><th className="p-4">Tagihan Bln Ini</th><th className="p-4">Sisa Bln Ini</th><th className="p-4 bg-red-50 text-red-700">TOTAL TUNGGAKAN</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">
                                     {filteredPelanggan.map(p => {
@@ -846,7 +819,6 @@ ${alignCenter('TERIMA KASIH')}
                         </div>
                     )}
 
-                    {/* MODAL 1: INPUT/EDIT METERAN TAGIHAN MANUAL */}
                     {modal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <form onSubmit={simpanTagihan} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
@@ -864,7 +836,6 @@ ${alignCenter('TERIMA KASIH')}
                         </div>
                     )}
 
-                    {/* MODAL 2: PEMBAYARAN GLOBAL (KALKULATOR KEMBALIAN) */}
                     {payModal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <form onSubmit={simpanPayGlobal} className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
@@ -893,9 +864,6 @@ ${alignCenter('TERIMA KASIH')}
             );
         }
 
-        // ==========================================
-        // 5. KOMPONEN PENGELUARAN MANAGER
-        // ==========================================
         function PengeluaranManager({ data, showToast }) {
             const [modal, setModal] = useState(false); 
             const [form, setForm] = useState({ tanggal: getCurrentDateYMD(), keterangan: '', nominal: '' });
@@ -949,9 +917,6 @@ ${alignCenter('TERIMA KASIH')}
             );
         }
 
-        // ==========================================
-        // 6. KOMPONEN KELUHAN & PERBAIKAN
-        // ==========================================
         function KeluhanManager({ data, pelanggan, showToast, isAdmin, currentUser }) {
             const [modal, setModal] = useState(false); 
             const [editId, setEditId] = useState(null);
@@ -1082,9 +1047,6 @@ ${alignCenter('TERIMA KASIH')}
             );
         }
 
-        // ==========================================
-        // 7. KOMPONEN PENGATURAN MANAGER
-        // ==========================================
         function PengaturanManager({ settings, adminUsers, showToast }) {
             const defaultPermissions = {
                 'Admin': ['dashboard', 'pelanggan', 'tagihan', 'keluhan', 'pengeluaran', 'pelaporan', 'pengaturan'],
@@ -1095,6 +1057,20 @@ ${alignCenter('TERIMA KASIH')}
             const [formSettings, setFormSettings] = useState(settings); 
             const [usersList, setUsersList] = useState(adminUsers);
             const [perms, setPerms] = useState(settings.rolePermissions || defaultPermissions);
+
+            // TAMBAHAN FIX: Sinkronisasi data dari server agar tidak tertimpa/hilang
+            useEffect(() => {
+                if (adminUsers && adminUsers.length > 0) {
+                    setUsersList(adminUsers);
+                }
+            }, [adminUsers]);
+
+            useEffect(() => {
+                if (settings) {
+                    setFormSettings(settings);
+                    setPerms(settings.rolePermissions || defaultPermissions);
+                }
+            }, [settings]);
 
             const menuList = [
                 { id: 'dashboard', label: 'Dashboard' }, { id: 'pelanggan', label: 'Pelanggan' },
@@ -1139,11 +1115,11 @@ ${alignCenter('TERIMA KASIH')}
                     <form onSubmit={simpanPengaturan} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                         <h3 className="text-lg font-bold text-gray-700 mb-4"><i className="fas fa-sliders-h mr-2"></i> Identitas, Tarif & Tagihan</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Aplikasi Utama</label><input type="text" value={formSettings.appName} onChange={e=>setFormSettings({...formSettings, appName:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Aplikasi Utama</label><input type="text" value={formSettings.appName || ''} onChange={e=>setFormSettings({...formSettings, appName:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/></div>
                             <div><label className="block text-sm font-medium text-gray-700 mb-1">Keterangan (Sub-judul / Unit)</label><input type="text" value={formSettings.appSubtitle || ''} onChange={e=>setFormSettings({...formSettings, appSubtitle:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="Contoh: UNIT HIPAB"/></div>
                             <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Ubah Logo (Opsional)</label><div className="flex items-center gap-3"><div className="w-12 h-12 bg-gray-100 border rounded flex items-center justify-center overflow-hidden"><LogoRenderer logo={formSettings.logo} className="text-xl text-gray-400" /></div><input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm flex-1 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/></div></div>
-                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Tarif per Kubik (Rp)</label><input type="number" value={formSettings.tarif} onChange={e=>setFormSettings({...formSettings, tarif:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/></div>
-                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Beban Meteran Tetap (Rp)</label><input type="number" value={formSettings.beban} onChange={e=>setFormSettings({...formSettings, beban:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Tarif per Kubik (Rp)</label><input type="number" value={formSettings.tarif || 0} onChange={e=>setFormSettings({...formSettings, tarif:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Beban Meteran Tetap (Rp)</label><input type="number" value={formSettings.beban || 0} onChange={e=>setFormSettings({...formSettings, beban:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/></div>
                             <div><label className="block text-sm font-medium text-gray-700 mb-1">Batas Bulan Status KRITIS</label><input type="number" value={formSettings.batasBulanKritis !== undefined ? formSettings.batasBulanKritis : 3} onChange={e=>setFormSettings({...formSettings, batasBulanKritis:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-red-500" required/></div>
                             <div><label className="block text-sm font-medium text-gray-700 mb-1">Batas Nominal Status KRITIS (Rp)</label><input type="number" value={formSettings.batasNominalKritis !== undefined ? formSettings.batasNominalKritis : 350000} onChange={e=>setFormSettings({...formSettings, batasNominalKritis:e.target.value})} className="border p-3 w-full rounded-lg outline-none focus:ring-2 focus:ring-red-500" required/></div>
                         </div>
