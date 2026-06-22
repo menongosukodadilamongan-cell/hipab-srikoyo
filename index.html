@@ -12,8 +12,8 @@ import {
 // ==========================================
 // 🛑 KONFIGURASI FIREBASE 🛑
 // ==========================================
-const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
-const firebaseConfig = configStr ? JSON.parse(configStr) : {
+const useCanvasDB = typeof __firebase_config !== 'undefined';
+const finalConfig = useCanvasDB ? JSON.parse(__firebase_config) : {
   apiKey: "AIzaSyCGxO7B7PMPv3YhSNVcm-CpWUcxVPIA4bM",
   authDomain: "hipab-srikoyo-data.firebaseapp.com",
   projectId: "hipab-srikoyo-data",
@@ -22,13 +22,26 @@ const firebaseConfig = configStr ? JSON.parse(configStr) : {
   appId: "1:741286764093:web:b355072e65eca80ea91454"
 };
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+const app = getApps().length === 0 ? initializeApp(finalConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appIdStr = typeof __app_id !== 'undefined' ? __app_id : 'hipab-srikoyo';
 
-const getCol = (cName) => collection(db, 'artifacts', appIdStr, 'public', 'data', cName);
-const getDocRef = (cName, id) => doc(db, 'artifacts', appIdStr, 'public', 'data', cName, id);
+const getCol = (cName) => useCanvasDB 
+    ? collection(db, 'artifacts', appIdStr, 'public', 'data', cName)
+    : collection(db, 'srikoyo_database', 'main_data', cName);
+
+const getDocRef = (cName, id) => useCanvasDB
+    ? doc(db, 'artifacts', appIdStr, 'public', 'data', cName, id)
+    : doc(db, 'srikoyo_database', 'main_data', cName, id);
+
+const getConfDoc = () => useCanvasDB
+    ? doc(db, 'artifacts', appIdStr, 'public', 'data', 'pengaturan', 'konfigurasi')
+    : doc(db, 'srikoyo_database', 'main_data', 'pengaturan', 'konfigurasi');
+
+const getUsersDoc = () => useCanvasDB
+    ? doc(db, 'artifacts', appIdStr, 'public', 'data', 'pengaturan', 'users')
+    : doc(db, 'srikoyo_database', 'main_data', 'pengaturan', 'users');
 
 // ==========================================
 // FUNGSI UTILITY
@@ -104,7 +117,7 @@ function Login({ users, set, onLogin, showToast }) {
         e.preventDefault();
         if(users.length===0 && u==='admin' && p==='admin123') return onLogin({username:'admin', role:'Admin', wilayah:''});
         const v = users.find(x => x.username===u && x.password===p);
-        if(v) { onLogin({...v, role:v.role||'Admin', wilayah:v.wilayah||''}); showToast(`Selamat Datang ${v.role}!`); } else alert('Username/Password Salah!');
+        if(v) { onLogin({...v, role:v.role||'Admin', wilayah:v.wilayah||''}); showToast(`Selamat Datang ${v.role}!`); } else showToast('❌ Username atau Password Salah!');
     };
     return (
         <div className="flex items-center justify-center min-h-screen bg-blue-900 px-4">
@@ -163,7 +176,7 @@ function Dash({ pel, tag, peng, kel, adm, cUser, set }) {
             <div className="bg-red-50 border-l-4 border-red-600 p-4 rounded-lg flex justify-between items-center">
                 <div className="text-red-800 font-bold">
                     <div className="flex items-center"><AlertTriangle className="w-5 h-5 mr-2" /> STATUS KRITIS</div>
-                    <div className="text-xs font-normal mt-1">Tunggakan &ge;{bBln} bln / &ge;{formatRp(bNom)}</div>
+                    <div className="text-xs font-normal mt-1">Tunggakan &ge; {bBln} bln / &ge; {formatRp(bNom)}</div>
                 </div>
                 <div className="text-right">
                     <p className="text-3xl font-black text-red-600 animate-pulse">{kr}</p>
@@ -188,7 +201,7 @@ function Dash({ pel, tag, peng, kel, adm, cUser, set }) {
 // ==========================================
 // 3. PELANGGAN MANAGER
 // ==========================================
-function PelMgr({ data, toast, adm, cUser }) {
+function PelMgr({ data, toast, adm, cUser, requestConfirm }) {
     const wf = useWilayah(data, adm, cUser); 
     const [m, setM] = useState(false); const [eId, setEId] = useState(null);
     const [fNo, setFNo] = useState(''); const [fNm, setFNm] = useState(''); const [fWl, setFWl] = useState('');
@@ -210,13 +223,42 @@ function PelMgr({ data, toast, adm, cUser }) {
         try { 
             if(eId) await updateDoc(getDocRef('pelanggan', eId), pl); else await addDoc(getCol('pelanggan'), pl);
             setM(false); toast('Tersimpan!'); 
-        } catch(e) { alert(e.message); } 
+        } catch(e) { toast('❌ ' + e.message); } 
     };
 
-    const del = async (id) => { 
-        if(adm&&confirm('Hapus Pelanggan? Semua data historis tagihan akan terbengkalai.')){ 
-            await deleteDoc(getDocRef('pelanggan', id)); toast('Dihapus!'); 
+    const del = (id) => { 
+        if(adm) {
+            requestConfirm('Hapus Pelanggan secara permanen? Semua data historis tagihan akan terbengkalai.', async () => {
+                await deleteDoc(getDocRef('pelanggan', id)); 
+                toast('Dihapus!'); 
+            });
         } 
+    };
+
+    const handleFileUpload = (e) => {
+        const file = e.target.files[0]; if (!file) return; const reader = new FileReader();
+        reader.onload = async (event) => {
+            const rows = event.target.result.split(/\r?\n/).filter(r => r.trim() !== '');
+            if (rows.length < 2) return toast('❌ Format file kosong atau salah.');
+            const delim = rows[0].includes(';') ? ';' : ','; const isNew = rows[0].toLowerCase().includes('wilayah');
+            let succ = 0;
+            for (let i = 1; i < rows.length; i++) {
+                const c = rows[i].split(delim).map(x => x.replace(/^"|"$/g, '').trim());
+                if (c.length >= 2) {
+                    await addDoc(getCol('pelanggan'), isNew 
+                        ? { noPelanggan: c[0]||'', nama: c[1]||'', wilayah: c[2]||'', rt: c[3]||'', rw: c[4]||'', status: (c[5]&&c[5].toLowerCase().includes('tidak'))?'Tidak Aktif':'Aktif', noHp: c[6]||'' }
+                        : { noPelanggan: c[0]||'', nama: c[1]||'', wilayah: '', rt: c[2]||'', rw: c[3]||'', status: (c[4]&&c[4].toLowerCase().includes('tidak'))?'Tidak Aktif':'Aktif', noHp: c[5]||'' });
+                    succ++;
+                }
+            }
+            toast(`✅ ${succ} Data Berhasil Diimport!`); e.target.value = null;
+        }; reader.readAsText(file);
+    };
+
+    const downloadCSV = () => {
+        const csv = "NoPelanggan;Nama;Wilayah;RT;RW;Status;NoHp\n" + fd.map(p => `"${p.noPelanggan}";"${p.nama}";"${p.wilayah || ''}";"${p.rt}";"${p.rw}";"${p.status}";"${p.noHp}"`).join('\n');
+        const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\ufeff", csv], { type: 'text/csv;charset=utf-8;' }));
+        link.download = "Data_Pelanggan.csv"; link.click();
     };
 
     return (
@@ -232,6 +274,10 @@ function PelMgr({ data, toast, adm, cUser }) {
                         <input placeholder="Cari..." value={src} onChange={e=>setSrc(e.target.value)} className="border p-2 pl-8 rounded w-full text-sm"/>
                     </div>
                     {adm && <button onClick={()=>open()} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded flex items-center text-sm"><Plus className="w-4 h-4 mr-1"/> Tambah</button>}
+                    {adm && <div className="flex items-center gap-1 border p-1 rounded">
+                        <div className="relative overflow-hidden cursor-pointer"><input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 opacity-0"/><button className="text-green-600 px-2 text-sm font-bold flex items-center"><Upload className="w-4 h-4 mr-1"/> Import</button></div>
+                        <button onClick={downloadCSV} className="text-gray-700 px-2 border-l text-sm font-bold flex items-center"><Download className="w-4 h-4 mr-1"/> Export</button>
+                    </div>}
                 </div>
             </div>
             
@@ -292,7 +338,7 @@ function PelMgr({ data, toast, adm, cUser }) {
 // ==========================================
 // 4. TAGIHAN MANAGER
 // ==========================================
-function TagMgr({ pel, tag, set, toast, adm, cUser }) {
+function TagMgr({ pel, tag, set, toast, adm, cUser, requestConfirm }) {
     const wf = useWilayah(pel, adm, cUser); 
     const [per, setPer] = useState(curYMD().slice(0,7)); const [src, setSrc] = useState('');
     const [fm, setFm] = useState(false); const [fInp, setFInp] = useState({}); const [sv, setSv] = useState(false);
@@ -335,10 +381,18 @@ function TagMgr({ pel, tag, set, toast, adm, cUser }) {
         try { 
             if(eT) await updateDoc(getDocRef('tagihan', eT.id), pl); else await addDoc(getCol('tagihan'), pl); 
             setM(false); toast('Tersimpan!'); 
-        } catch(err) { alert(err.message); } 
+        } catch(err) { toast('❌ ' + err.message); } 
     };
 
-    const delT = async (id) => { if(adm&&confirm('Hapus Tagihan?')){ await deleteDoc(getDocRef('tagihan', id)); setM(false); toast('Dihapus!'); } };
+    const delT = (id) => { 
+        if(adm) {
+            requestConfirm('Hapus Tagihan secara permanen?', async () => {
+                await deleteDoc(getDocRef('tagihan', id)); 
+                setM(false); 
+                toast('Dihapus!'); 
+            });
+        } 
+    };
 
     const svMas = async () => { 
         setSv(true); let c=0; 
@@ -351,15 +405,15 @@ function TagMgr({ pel, tag, set, toast, adm, cUser }) {
                     else { await addDoc(getCol('tagihan'), {idPelanggan:p.id, periode:per, meterAwal:mS, meterAkhir:mE, total:th, terbayar:0, status:'Belum Terbayar'}); c++; } 
                 } 
             })); 
-            if(c>0) toast(`${c} Tersimpan!`); setFInp({}); setFm(false); 
-        } catch(err){alert(err.message);} 
+            if(c>0) toast(`✅ ${c} Data Tersimpan!`); setFInp({}); setFm(false); 
+        } catch(err){toast('❌ ' + err.message);} 
         setSv(false); 
     };
 
     const openP = (p) => { setSP(p); setPN(''); setPM(true); };
     
     const svP = async (e) => {
-        e.preventDefault(); let u=Number(pN); const as=u; if(u<0)return;
+        e.preventDefault(); let u=Number(pN); const as=u; if(u<0) return toast("❌ Nominal tidak valid!");
         try {
             const cT=tag.find(t=>t.idPelanggan===sP.id&&t.periode===per);
             const ul=tag.filter(t=>t.idPelanggan===sP.id&&getSisa(t)>0&&t.periode!==per).sort((a,b)=>a.periode.localeCompare(b.periode));
@@ -381,7 +435,7 @@ function TagMgr({ pel, tag, set, toast, adm, cUser }) {
             if(cT && u>0){ if(getSisa(cT)>0) await pay(cT); else if(cT.id===tId) await updateDoc(getDocRef('tagihan', cT.id), {uangDiserahkan:as, kembalian:kmb, petugasPenagih:cUser.username}); }
             if(u>0) for(let t of ul){ if(u<=0)break; await pay(t); } 
             setPM(false); toast('Pembayaran Sukses!');
-        } catch(err){alert(err.message);}
+        } catch(err){toast('❌ ' + err.message);}
     };
 
     const doCtk = (p, t, wa) => {
@@ -517,7 +571,9 @@ function TagMgr({ pel, tag, set, toast, adm, cUser }) {
                         <p className="text-sm text-gray-500 mb-5">{sP.nama}</p>
                         {(() => {
                             const cT = tag.find(t => t.idPelanggan === sP.id && t.periode === per);
-                            const totHut = (cT ? getSisa(cT) : 0) + tag.filter(t => t.idPelanggan === sP.id && getSisa(t) > 0 && t.periode !== per).reduce((s,t)=>s+getSisa(t), 0);
+                            const filterUl = tag.filter(t => t.idPelanggan === sP.id && getSisa(t) > 0 && t.periode !== per);
+                            const sisaUl = filterUl.reduce((s,t) => s + getSisa(t), 0);
+                            const totHut = (cT ? getSisa(cT) : 0) + sisaUl;
                             const kemb = Number(pN) > totHut ? Number(pN) - totHut : 0;
                             return (
                                 <>
@@ -539,26 +595,26 @@ function TagMgr({ pel, tag, set, toast, adm, cUser }) {
 // ==========================================
 // 5. BUKU KAS & KELUHAN
 // ==========================================
-function PengeluaranMgr({ data, toast }) {
+function PengeluaranMgr({ data, toast, requestConfirm }) {
     const [m, setM] = useState(false); const [f, setF] = useState({tgl:curYMD(), ket:'', nom:''});
     const sv = async (e) => { e.preventDefault(); await addDoc(getCol('pengeluaran'), {tanggal:f.tgl, keterangan:f.ket, nominal:Number(f.nom)}); setM(false); toast('Tersimpan!'); };
-    return (<div className="space-y-4"><div className="flex justify-between items-center border-b pb-2"><h2 className="text-xl font-bold">Buku Kas</h2><button onClick={()=>setM(true)} className="bg-red-600 text-white px-3 py-2 rounded flex items-center text-sm"><Plus className="w-4 h-4 mr-1"/> Tambah</button></div><div className="bg-white border rounded-xl overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b"><tr><th className="p-4">Tanggal</th><th className="p-4">Keterangan</th><th className="p-4 text-right">Nominal</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y">{[...data].sort((a,b)=>new Date(b.tanggal)-new Date(a.tanggal)).map(k=><tr key={k.id}><td className="p-4">{k.tanggal}</td><td className="p-4 font-medium">{k.keterangan}</td><td className="p-4 text-right font-bold text-red-600">{formatRp(k.nominal)}</td><td className="p-4 text-center"><button onClick={async()=>{if(confirm('Hapus?'))await deleteDoc(getDocRef('pengeluaran', k.id));toast('Dihapus!');}} className="text-red-500 p-1"><Trash2 className="w-4 h-4"/></button></td></tr>)}</tbody></table></div>{m && <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50"><form onSubmit={sv} className="bg-white p-6 rounded-2xl w-full max-w-md"><h3 className="font-bold text-xl mb-6">Catat Pengeluaran</h3><div className="space-y-4 mb-6"><Inp l="Tanggal" v={f.tgl} f={(v)=>setF({...f, tgl:v})} type="date" /><Inp l="Keterangan / Detail" v={f.ket} f={(v)=>setF({...f, ket:v})} /><Inp l="Nominal (Rp)" v={f.nom} f={(v)=>setF({...f, nom:v})} type="number" /></div><div className="flex justify-end gap-3"><button type="button" onClick={()=>setM(false)} className="px-5 py-2 border rounded-lg text-gray-600">Batal</button><button type="submit" className="px-5 py-2 bg-red-600 text-white rounded-lg font-bold">Simpan</button></div></form></div>}</div>);
+    return (<div className="space-y-4"><div className="flex justify-between items-center border-b pb-2"><h2 className="text-xl font-bold">Buku Kas</h2><button onClick={()=>setM(true)} className="bg-red-600 text-white px-3 py-2 rounded flex items-center text-sm"><Plus className="w-4 h-4 mr-1"/> Tambah</button></div><div className="bg-white border rounded-xl overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b"><tr><th className="p-4">Tanggal</th><th className="p-4">Keterangan</th><th className="p-4 text-right">Nominal</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y">{[...data].sort((a,b)=>new Date(b.tanggal)-new Date(a.tanggal)).map(k=><tr key={k.id}><td className="p-4">{k.tanggal}</td><td className="p-4 font-medium">{k.keterangan}</td><td className="p-4 text-right font-bold text-red-600">{formatRp(k.nominal)}</td><td className="p-4 text-center"><button onClick={()=>requestConfirm('Hapus pengeluaran ini?', async()=>{await deleteDoc(getDocRef('pengeluaran', k.id));toast('Dihapus!');})} className="text-red-500 p-1"><Trash2 className="w-4 h-4"/></button></td></tr>)}</tbody></table></div>{m && <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50"><form onSubmit={sv} className="bg-white p-6 rounded-2xl w-full max-w-md"><h3 className="font-bold text-xl mb-6">Catat Pengeluaran</h3><div className="space-y-4 mb-6"><Inp l="Tanggal" v={f.tgl} f={(v)=>setF({...f, tgl:v})} type="date" /><Inp l="Keterangan / Detail" v={f.ket} f={(v)=>setF({...f, ket:v})} /><Inp l="Nominal (Rp)" v={f.nom} f={(v)=>setF({...f, nom:v})} type="number" /></div><div className="flex justify-end gap-3"><button type="button" onClick={()=>setM(false)} className="px-5 py-2 border rounded-lg text-gray-600">Batal</button><button type="submit" className="px-5 py-2 bg-red-600 text-white rounded-lg font-bold">Simpan</button></div></form></div>}</div>);
 }
 
-function KelMgr({ data, pel, toast, adm, cUser }) {
+function KeluhanMgr({ data, pel, toast, adm, cUser, requestConfirm }) {
     const wf = useWilayah(pel, adm, cUser); const [m, setM] = useState(false); const [eId, setEId] = useState(null); 
     const [f, setF] = useState({tgl:curYMD(), idPel:'', kel:'', st:'Menunggu'}); const [src, setSrc] = useState('');
     const fd = data.filter(k=>wf.isMatch((pel.find(p=>p.id===k.idPelanggan)||{}).wilayah)).filter(k=>!src||(pel.find(x=>x.id===k.idPelanggan)?.nama||'').toLowerCase().includes(src.toLowerCase())).sort((a,b)=>new Date(b.tanggal)-new Date(a.tanggal));
     
-    const sv = async (e) => { e.preventDefault(); if(!f.idPel) return; const pl={tanggal:f.tgl, idPelanggan:f.idPel, keluhan:f.kel, status:f.st}; try{if(eId) await updateDoc(getDocRef('keluhan', eId), pl); else await addDoc(getCol('keluhan'), pl); setM(false); toast('Tersimpan!');}catch(err){alert(err.message);} };
+    const sv = async (e) => { e.preventDefault(); if(!f.idPel) return; const pl={tanggal:f.tgl, idPelanggan:f.idPel, keluhan:f.kel, status:f.st}; try{if(eId) await updateDoc(getDocRef('keluhan', eId), pl); else await addDoc(getCol('keluhan'), pl); setM(false); toast('Tersimpan!');}catch(err){toast('❌ ' + err.message);} };
     
-    return (<div className="space-y-4"><div className="flex justify-between items-center border-b pb-2"><h2 className="text-xl font-bold">Keluhan</h2><button onClick={()=>{setEId(null);setM(true);}} className="bg-orange-600 text-white px-3 py-2 rounded flex items-center text-sm"><Plus className="w-4 h-4 mr-1"/> Lapor</button></div><div className="relative"><Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" /><input placeholder="Cari Pelapor..." value={src} onChange={e=>setSrc(e.target.value)} className="border p-2 pl-9 w-full rounded text-sm"/></div><div className="space-y-3">{fd.map(k=><div key={k.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center"><div><div className="font-bold text-gray-800">{pel.find(p=>p.id===k.idPelanggan)?.nama||'-'} <span className="text-xs font-normal text-gray-500">({k.tanggal})</span></div><div className="text-sm text-red-600 mt-1">{k.keluhan}</div><div className={`text-[10px] font-bold inline-block px-2 py-1 mt-2 rounded ${k.status==='Selesai'?'bg-green-100 text-green-700':'bg-orange-100 text-orange-700'}`}>{k.status}</div></div><div className="flex space-x-2"><button onClick={()=>{setEId(k.id);setF({tgl:k.tanggal, idPel:k.idPelanggan, kel:k.keluhan, st:k.status});setM(true);}} className="text-blue-600 p-2"><Edit className="w-5 h-5"/></button>{adm&&<button onClick={async()=>{if(confirm('Hapus?'))await deleteDoc(getDocRef('keluhan', k.id));toast('Dihapus!');}} className="text-red-500 p-2"><Trash2 className="w-5 h-5"/></button>}</div></div>)}</div>{m && <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50"><form onSubmit={sv} className="bg-white p-6 rounded-2xl w-full max-w-md"><h3 className="font-bold text-xl mb-5">Form Keluhan</h3><div className="space-y-4 mb-6"><div><label className="block text-xs font-medium text-gray-700 mb-1">Pilih Warga</label><select value={f.idPel} onChange={e=>setF({...f, idPel:e.target.value})} className="border p-2 w-full rounded outline-none" required><option value="">Pilih...</option>{pel.filter(p=>wf.isMatch(p.wilayah)).map(p=><option key={p.id} value={p.id}>{p.nama}</option>)}</select></div><Inp l="Keluhan" v={f.kel} f={(v)=>setF({...f, kel:v})} /><div><label className="block text-xs font-medium text-gray-700 mb-1">Status</label><select value={f.st} onChange={e=>setF({...f, st:e.target.value})} className="border p-2 w-full rounded outline-none"><option>Menunggu</option><option>Proses</option><option>Selesai</option></select></div></div><div className="flex justify-end gap-3"><button type="button" onClick={()=>setM(false)} className="px-5 py-2 border rounded-lg text-gray-600">Batal</button><button type="submit" className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold">Simpan</button></div></form></div>}</div>);
+    return (<div className="space-y-4"><div className="flex justify-between items-center border-b pb-2"><h2 className="text-xl font-bold">Keluhan</h2><button onClick={()=>{setEId(null);setM(true);}} className="bg-orange-600 text-white px-3 py-2 rounded flex items-center text-sm"><Plus className="w-4 h-4 mr-1"/> Lapor</button></div><div className="relative"><Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" /><input placeholder="Cari Pelapor..." value={src} onChange={e=>setSrc(e.target.value)} className="border p-2 pl-9 w-full rounded text-sm"/></div><div className="space-y-3">{fd.map(k=><div key={k.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center"><div><div className="font-bold text-gray-800">{pel.find(p=>p.id===k.idPelanggan)?.nama||'-'} <span className="text-xs font-normal text-gray-500">({k.tanggal})</span></div><div className="text-sm text-red-600 mt-1">{k.keluhan}</div><div className={`text-[10px] font-bold inline-block px-2 py-1 mt-2 rounded ${k.status==='Selesai'?'bg-green-100 text-green-700':'bg-orange-100 text-orange-700'}`}>{k.status}</div></div><div className="flex space-x-2"><button onClick={()=>{setEId(k.id);setF({tgl:k.tanggal, idPel:k.idPelanggan, kel:k.keluhan, st:k.status});setM(true);}} className="text-blue-600 p-2"><Edit className="w-5 h-5"/></button>{adm&&<button onClick={()=>requestConfirm('Hapus keluhan ini?', async()=>{await deleteDoc(getDocRef('keluhan', k.id));toast('Dihapus!');})} className="text-red-500 p-2"><Trash2 className="w-5 h-5"/></button>}</div></div>)}</div>{m && <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50"><form onSubmit={sv} className="bg-white p-6 rounded-2xl w-full max-w-md"><h3 className="font-bold text-xl mb-5">Form Keluhan</h3><div className="space-y-4 mb-6"><div><label className="block text-xs font-medium text-gray-700 mb-1">Pilih Warga</label><select value={f.idPel} onChange={e=>setF({...f, idPel:e.target.value})} className="border p-2 w-full rounded outline-none" required><option value="">Pilih...</option>{pel.filter(p=>wf.isMatch(p.wilayah)).map(p=><option key={p.id} value={p.id}>{p.nama}</option>)}</select></div><Inp l="Keluhan" v={f.kel} f={(v)=>setF({...f, kel:v})} /><div><label className="block text-xs font-medium text-gray-700 mb-1">Status</label><select value={f.st} onChange={e=>setF({...f, st:e.target.value})} className="border p-2 w-full rounded outline-none"><option>Menunggu</option><option>Proses</option><option>Selesai</option></select></div></div><div className="flex justify-end gap-3"><button type="button" onClick={()=>setM(false)} className="px-5 py-2 border rounded-lg text-gray-600">Batal</button><button type="submit" className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold">Simpan</button></div></form></div>}</div>);
 }
 
 // ==========================================
 // 6. PENGATURAN MANAGER
 // ==========================================
-function PengaturanMgr({ set, admU, toast }) {
+function SetMgr({ set, admU, toast }) {
     const dp = { 'Admin': ['dash','pel','tag','kel','peng','lap','set'], 'Petugas': ['pel','tag','kel'], 'Ketua HIPAB': ['dash','lap'] };
     const [fS, setFs] = useState(set || {}); const [u, setU] = useState([]); const [ld, setLd] = useState(false);
     
@@ -567,12 +623,12 @@ function PengaturanMgr({ set, admU, toast }) {
     
     const sv = async (e) => { 
         e.preventDefault(); 
-        if(u.some(x=>!x.username.trim()||!x.password.trim())) return alert("User/Pass kosong!"); 
+        if(u.some(x=>!x.username.trim()||!x.password.trim())) return toast("❌ User/Pass kosong!"); 
         try { 
-            await setDoc(getDocRef('pengaturan', 'konfigurasi'), {...fS, tarif:Number(fS.tarif||0), beban:Number(fS.beban||0), batasBulanKritis:Number(fS.batasBulanKritis!==undefined?fS.batasBulanKritis:3), batasNominalKritis:Number(fS.batasNominalKritis!==undefined?fS.batasNominalKritis:350000)}); 
-            await setDoc(getDocRef('pengaturan', 'users'), {list:u}); 
+            await setDoc(getConfDoc(), {...fS, tarif:Number(fS.tarif||0), beban:Number(fS.beban||0), batasBulanKritis:Number(fS.batasBulanKritis!==undefined?fS.batasBulanKritis:3), batasNominalKritis:Number(fS.batasNominalKritis!==undefined?fS.batasNominalKritis:350000)}); 
+            await setDoc(getUsersDoc(), {list:u}); 
             toast("Pengaturan & Akun Berhasil Disimpan!"); 
-        } catch(err) { alert(err.message); } 
+        } catch(err) { toast("❌ " + err.message); } 
     };
 
     return (
@@ -620,7 +676,12 @@ function LapMgr({ pel, tag, set }) {
     const filPel = pel; const pelIds = new Set(filPel.map(p => p.id));
     const getName = id => pel.find(p => p.id === id)?.nama || '-';
 
-    const htm = `<div class="tc"><h2 style="margin:0">${set?.appName||''}</h2><h3 style="margin:5px 0 15px 0">Laporan Bulan ${per}</h3></div><table style="width:100%;border-collapse:collapse;font-family:sans-serif;" border="1"><tr><th style="padding:8px;background:#eee">Nama</th><th style="padding:8px;background:#eee">Tagihan</th><th style="padding:8px;background:#eee">Dibayar</th><th style="padding:8px;background:#eee">Tunggakan</th></tr>${tag.filter(t=>t.periode===per).map(t=>`<tr><td style="padding:6px">${getName(t.idPelanggan)}</td><td style="padding:6px;text-align:right">${formatRp(t.total)}</td><td style="padding:6px;text-align:right">${formatRp(getTerbayar(t))}</td><td style="padding:6px;text-align:right;color:red;font-weight:bold">${formatRp(getSisa(t))}</td></tr>`).join('')}</table>`;
+    const htm = `
+        <div class="tc"><h2 style="margin:0">${set?.appName||''}</h2><h3 style="margin:5px 0 15px 0">Laporan Bulan ${per}</h3></div>
+        <table style="width:100%;border-collapse:collapse;font-family:sans-serif;" border="1">
+            <tr><th style="padding:8px;background:#eee">Nama</th><th style="padding:8px;background:#eee">Tagihan</th><th style="padding:8px;background:#eee">Dibayar</th><th style="padding:8px;background:#eee">Tunggakan</th></tr>
+            ${tag.filter(t=>t.periode===per).map(t=>`<tr><td style="padding:6px">${getName(t.idPelanggan)}</td><td style="padding:6px;text-align:right">${formatRp(t.total)}</td><td style="padding:6px;text-align:right">${formatRp(getTerbayar(t))}</td><td style="padding:6px;text-align:right;color:red;font-weight:bold">${formatRp(getSisa(t))}</td></tr>`).join('')}
+        </table>`;
     
     return (
         <div className="space-y-4">
@@ -641,10 +702,13 @@ function LapMgr({ pel, tag, set }) {
 // ==========================================
 export default function App() {
     const [fU, setFU] = useState(null); 
-    const [cU, setCU] = useState(null);
+    const [cU, setCU] = useState(() => { 
+        try { const s = localStorage.getItem('hipab_user'); return s ? JSON.parse(s) : null; } catch(e) { return null; }
+    });
     const [tab, setTab] = useState('dash'); 
     const [mob, setMob] = useState(false); 
     const [tst, setTst] = useState(null);
+    const [conf, setConf] = useState(null); // Dialog Konfirmasi Global
     
     const [dPel, setDPel] = useState([]); const [dTag, setDTag] = useState([]); 
     const [dPng, setDPng] = useState([]); const [dKel, setDKel] = useState([]); const [dAdm, setDAdm] = useState([]);
@@ -657,7 +721,7 @@ export default function App() {
             try { 
                 if(typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); 
                 else await signInAnonymously(auth); 
-            } catch (err) { console.error(err); } 
+            } catch (err) { console.error("Auth error:", err); } 
         }; 
         initAuth(); 
         return onAuthStateChanged(auth, setFU); 
@@ -666,8 +730,8 @@ export default function App() {
     useEffect(() => {
         if(!fU) return;
         const un = [
-            onSnapshot(getDocRef('pengaturan','konfigurasi'), d => { if(d.exists()) setSet(d.data()); else setDoc(getDocRef('pengaturan','konfigurasi'), set); }),
-            onSnapshot(getDocRef('pengaturan','users'), d => { if(d.exists()) setDAdm(d.data().list || []); else { const def=[{id:'1',username:'admin',password:'admin123',role:'Admin'}]; setDoc(getDocRef('pengaturan','users'), {list:def}); setDAdm(def); }})
+            onSnapshot(getConfDoc(), d => { if(d.exists()) setSet(d.data()); else setDoc(getConfDoc(), set); }),
+            onSnapshot(getUsersDoc(), d => { if(d.exists()) setDAdm(d.data().list || []); else { const def=[{id:'1',username:'admin',password:'admin123',role:'Admin'}]; setDoc(getUsersDoc(), {list:def}); setDAdm(def); }})
         ];
         if(cU) un.push(
             onSnapshot(getCol('pelanggan'), s => setDPel(s.docs.map(d => ({id:d.id, ...d.data()})))),
@@ -679,10 +743,20 @@ export default function App() {
     }, [cU, fU]);
 
     const showToast = (m) => { setTst(m); setTimeout(()=>setTst(null), 3000); };
-    const logOut = () => { setCU(null); setTab('dash'); };
+    const reqConf = (msg, onC) => setConf({ msg, onC });
+    
+    const logOut = () => { 
+        try { localStorage.removeItem('hipab_user'); } catch(e) {} 
+        setCU(null); setTab('dash'); 
+    };
+    
+    const logIn = (u) => {
+        try { localStorage.setItem('hipab_user',JSON.stringify(u)); } catch(e) {}
+        setCU(u); setTab((set.rolePermissions||dPerm)[u.role]?.[0]||'dash');
+    };
 
     if(!fU) return <div className="flex h-screen items-center justify-center bg-blue-900 text-white"><Loader className="w-12 h-12 animate-spin"/></div>;
-    if(!cU) return <Login users={dAdm} set={set} onLogin={(u)=>{setCU(u);setTab((set.rolePermissions||dPerm)[u.role]?.[0]||'dash');}} showToast={showToast}/>;
+    if(!cU) return <Login users={dAdm} set={set} onLogin={logIn} showToast={showToast}/>;
 
     const isAdm = cU.role==='Admin', hA = (id) => (set.rolePermissions||dPerm)[cU.role||'Petugas']?.includes(id);
     const MN = [{i:'dash',l:'Dashboard',ic:Home},{i:'pel',l:'Pelanggan',ic:Users},{i:'tag',l:'Tagihan',ic:FileText},{i:'kel',l:'Keluhan',ic:Wrench},{i:'peng',l:'Buku Kas',ic:Book},{i:'lap',l:'Pelaporan',ic:PieChart},{i:'set',l:'Pengaturan',ic:Settings}];
@@ -703,7 +777,20 @@ export default function App() {
 
     return (
         <div className="flex h-screen bg-gray-50 font-sans text-gray-800">
-            {tst && <div className="fixed top-4 right-4 z-[100] bg-green-600 text-white px-5 py-3 rounded-lg shadow-2xl font-bold flex items-center animate-bounce"><CheckCircle className="w-5 h-5 mr-2" /> {tst}</div>}
+            {tst && <div className="fixed top-4 right-4 z-[300] bg-gray-800 text-white px-5 py-3 rounded-lg shadow-2xl font-bold flex items-center animate-bounce">{tst}</div>}
+            
+            {conf && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[200]">
+                    <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl text-center">
+                        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                        <h3 className="font-bold text-lg mb-6">{conf.msg}</h3>
+                        <div className="flex justify-center gap-3">
+                            <button onClick={()=>setConf(null)} className="px-5 py-2 border rounded-lg font-medium text-gray-600">Batal</button>
+                            <button onClick={()=>{conf.onC(); setConf(null);}} className="px-5 py-2 bg-red-600 text-white rounded-lg font-bold">Ya, Hapus</button>
+                        </div>
+                    </div>
+                </div>
+            )}
             
             <aside className="hidden md:flex flex-col w-72 bg-blue-900 text-white shadow-2xl z-20"><Side/></aside>
             
@@ -726,12 +813,12 @@ export default function App() {
 
                 <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 scroll-smooth">
                     {tab==='dash'&&<Dash pel={dPel} tag={dTag} peng={dPng} kel={dKel} adm={isAdm} cUser={cU} set={set}/>}
-                    {tab==='pel'&&<PelMgr data={dPel} toast={showToast} adm={isAdm} cUser={cU}/>}
-                    {tab==='tag'&&<TagMgr pel={dPel} tag={dTag} set={set} toast={showToast} adm={isAdm} cUser={cU}/>}
-                    {tab==='kel'&&<KelMgr data={dKel} pel={dPel} toast={showToast} adm={isAdm} cUser={cU}/>}
-                    {tab==='peng'&&<PengeluaranMgr data={dPng} toast={showToast}/>}
+                    {tab==='pel'&&<PelMgr data={dPel} toast={showToast} adm={isAdm} cUser={cU} requestConfirm={reqConf}/>}
+                    {tab==='tag'&&<TagMgr pel={dPel} tag={dTag} set={set} toast={showToast} adm={isAdm} cUser={cU} requestConfirm={reqConf}/>}
+                    {tab==='kel'&&<KeluhanMgr data={dKel} pel={dPel} toast={showToast} adm={isAdm} cUser={cU} requestConfirm={reqConf}/>}
+                    {tab==='peng'&&<PengeluaranMgr data={dPng} toast={showToast} requestConfirm={reqConf}/>}
                     {tab==='lap'&&<LapMgr pel={dPel} tag={dTag} set={set}/>}
-                    {tab==='set'&&<PengaturanMgr set={set} admU={dAdm} toast={showToast}/>}
+                    {tab==='set'&&<SetMgr set={set} admU={dAdm} toast={showToast}/>}
                 </main>
             </div>
         </div>
