@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom-server.browser.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
@@ -16,16 +15,16 @@
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased overflow-hidden">
     <div id="root"></div>
+
     <script type="text/babel">
-        // KONFIGURASI FIREBASE
+        // --- 1. KONFIGURASI FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyCGxO7B7PMPv3YhSNVcm-CpWUcxVPIA4bM",
             authDomain: "hipab-srikoyo-data.firebaseapp.com",
             projectId: "hipab-srikoyo-data",
             storageBucket: "hipab-srikoyo-data.firebasestorage.app",
             messagingSenderId: "741286764093",
-            appId: "1:741286764093:web:b355072e65eca80ea91454",
-            measurementId: "G-C5YGGWQDPQ"
+            appId: "1:741286764093:web:b355072e65eca80ea91454"
         };
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
@@ -33,730 +32,281 @@
         const DB_PUSAT = db.collection('srikoyo_database').doc('main_data');
         const { useState, useEffect } = React;
 
-        // FUNGSI BANTUAN
-        const formatRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num || 0);
-        const formatBulanTahunSingkat = (iso) => {
+        // --- 2. FUNGSI UTILITY UMUM ---
+        const formatRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n || 0);
+        const curYMD = () => new Date().toISOString().slice(0, 10);
+        const formatBlnThn = (iso) => {
             if(!iso) return '';
             const [y, m] = iso.split('-');
-            const months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
-            return `${months[parseInt(m)-1]} ${y.slice(2)}`;
+            const bln = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
+            return `${bln[parseInt(m)-1]} ${y}`;
         };
-        const formatBulanTahunLengkap = (iso) => {
-            if(!iso) return '';
-            const [y, m] = iso.split('-');
-            const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-            return `${months[parseInt(m)-1]} ${y}`;
+        const getSisa = (t) => t ? Math.max(0, t.total - (t.terbayar || 0)) : 0;
+        const getTunggakan = (tgs, id, per) => tgs.filter(t => t.idPelanggan === id && t.periode < per).reduce((s, t) => s + getSisa(t), 0);
+        const checkKritis = (tgs, id, bBulan, bNominal) => {
+            const utang = tgs.filter(t => t.idPelanggan === id && getSisa(t) > 0);
+            return (utang.length >= bBulan || utang.reduce((s, t) => s + getSisa(t), 0) >= bNominal);
         };
-        const getCurrentDate = () => {
-            const d = new Date();
-            const months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
-            return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-        };
-        const getCurrentDateYMD = () => new Date().toISOString().slice(0, 10);
-        const copyToClipboard = (text) => {
-            const t = document.createElement("textarea");
-            t.value = text; document.body.appendChild(t); t.select();
-            try { document.execCommand('copy'); return true; } catch(err) { return false; } finally { document.body.removeChild(t); }
+        const checkBocor = (tgs, id, pakai, per) => {
+            const tl = tgs.filter(t => t.idPelanggan === id && t.periode < per).sort((a,b) => b.periode.localeCompare(a.periode)).slice(0,3);
+            if(tl.length === 0) return false;
+            const avg = tl.reduce((s,t) => s + Math.max(0, t.meterAkhir - t.meterAwal), 0) / tl.length;
+            return (avg > 0 && pakai > (avg * 2.5) && pakai > 10);
         };
 
-        // SISTEM TAGIHAN
-        const getTerbayar = (t) => t ? (t.terbayar !== undefined ? Number(t.terbayar) : (t.status === 'Terbayar' ? Number(t.total) : 0)) : 0;
-        const getSisa = (t) => t ? Math.max(0, t.total - getTerbayar(t)) : 0;
-        const getStatusLabel = (t) => { if (!t) return '-'; const s = getSisa(t), tb = getTerbayar(t); return s <= 0 ? 'LUNAS' : (tb > 0 ? 'NYICIL' : 'BELUM'); };
-        const getTunggakanLalu = (tags, idPel, curPer) => tags.filter(t => t.idPelanggan === idPel && t.periode < curPer).reduce((s, t) => s + getSisa(t), 0);
-        const checkKritis = (tags, idPel, bBln = 3, bNom = 350000) => {
-            const utang = tags.filter(t => t.idPelanggan === idPel && getSisa(t) > 0);
-            return (utang.length >= bBln || utang.reduce((s, t) => s + getSisa(t), 0) >= bNom);
-        };
-        const checkKebocoran = (tags, idPel, pemakaian, curPer) => {
-            const tl = tags.filter(t => t.idPelanggan === idPel && t.periode < curPer).sort((a,b) => b.periode.localeCompare(a.periode)).slice(0, 3);
-            if (tl.length === 0) return false;
-            const avg = tl.reduce((s, t) => s + Math.max(0, t.meterAkhir - t.meterAwal), 0) / tl.length;
-            return (avg > 0 && pemakaian > (avg * 2.5) && pemakaian > 10);
+        const copyText = (txt) => {
+            const el = document.createElement("textarea"); el.value = txt; document.body.appendChild(el); el.select();
+            try { document.execCommand('copy'); return true; } catch(err) { return false; } finally { document.body.removeChild(el); }
         };
 
-        // CETAK STRUK
-        const alignC = (txt) => String(txt).padStart(Math.floor((32 - String(txt).length) / 2) + String(txt).length).padEnd(32);
-        const alignLR = (l, r) => String(l) + ' '.repeat(Math.max(0, 32 - String(l).length - String(r).length)) + String(r);
-        const printContent = (html, mode) => {
-            const ifrm = document.createElement('iframe');
-            ifrm.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-            document.body.appendChild(ifrm);
-            const doc = ifrm.contentWindow.document;
-            let style = mode === 'receipt' 
-                ? `<style>@page { size: 58mm auto; margin: 0; } body { width: 54mm; font-family: 'Segoe UI', sans-serif; font-size: 11px; margin: 2mm; color:#000; line-height: 1.4; } hr { border: 0.5px dashed #000; margin: 6px 0; } .text-center { text-align: center; } .text-right { text-align: right; } .bold { font-weight: bold; } .title { font-size: 14px; font-weight: bold; margin-bottom: 2px; text-transform: uppercase; } table { width: 100%; font-size: 11px; } td { padding: 2px 0; }</style>`
-                : `<style>@page { size: A4 portrait; margin: 15mm; } body { font-family: 'Segoe UI', sans-serif; color:#000; } table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 12px; } th, td { border: 1px solid #333; padding: 8px; text-align: left; } th { background-color: #f3f4f6; text-align: center; } .text-center { text-align: center; } .text-right { text-align: right; } h2, h3 { margin: 0 0 5px 0; } .header { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; text-align: center; text-transform: uppercase; } .no-border td { border: none; padding: 4px 0; }</style>`;
-            doc.open(); doc.write(`<html><head><title>Cetak Dokumen</title>${style}</head><body>${html}</body></html>`); doc.close();
-            ifrm.onload = () => { ifrm.contentWindow.focus(); ifrm.contentWindow.print(); setTimeout(() => document.body.removeChild(ifrm), 2000); };
+        // --- 3. CETAK DOKUMEN ---
+        const printDoc = (html, isStruk) => {
+            const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;width:0;height:0;border:0;'; document.body.appendChild(f);
+            const d = f.contentWindow.document;
+            const sty = isStruk 
+                ? `@page { size: 58mm auto; margin:0; } body { width: 54mm; font-family:sans-serif; font-size:11px; margin:2mm; line-height:1.4; color:#000; } hr{border:0.5px dashed #000; margin:6px 0;} .tc{text-align:center} .tr{text-align:right} .b{font-weight:bold} table{width:100%;font-size:11px}`
+                : `@page { size: A4; margin:15mm; } body { font-family:sans-serif; font-size:12px; color:#000; } table{width:100%;border-collapse:collapse;margin-top:15px} th,td{border:1px solid #333;padding:8px;text-align:left} th{background:#f3f4f6;text-align:center} .tc{text-align:center} .tr{text-align:right} .header{border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:20px;text-align:center}`;
+            d.open(); d.write(`<html><head><style>${sty}</style></head><body>${html}</body></html>`); d.close();
+            f.onload = () => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(()=>document.body.removeChild(f), 2000); };
         };
 
-        const LogoRenderer = ({ logo, clName }) => (logo && logo.startsWith('data:image')) ? <img src={logo} className={clName} style={{objectFit:'contain', width:'100%', height:'100%'}}/> : <i className={`fas fa-tint ${clName}`}></i>;
-        const NavItem = ({ icon, label, active, onClick }) => <button onClick={onClick} className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors ${active ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800 hover:text-white'}`}><i className={`fas ${icon} w-6 text-center mr-2 text-lg`}></i> {label}</button>;
-
-        // CUSTOM HOOK WILAYAH
-        const useWilayahFilter = (pelanggan, isAdmin, currentUser) => {
-            const userWilayahList = currentUser.wilayah ? String(currentUser.wilayah).split(',').map(w=>w.trim()).filter(Boolean) : [];
-            const isPetugasLocked = !isAdmin && userWilayahList.length > 0;
-            const [filterWilayah, setFilterWilayah] = useState(isPetugasLocked ? userWilayahList[0] || 'Semua' : 'Semua');
-            const allWilayahs = [...new Set(pelanggan.map(p => p.wilayah).filter(w => w && w.trim() !== ''))];
-            const dropdownWilayahs = isPetugasLocked ? ['Semua', ...userWilayahList] : ['Semua', ...allWilayahs];
-            const isMatchWilayah = (wil) => {
-                if (isPetugasLocked) {
-                    if (filterWilayah === 'Semua') return userWilayahList.includes(wil);
-                    return wil === filterWilayah;
-                }
-                return filterWilayah === 'Semua' || wil === filterWilayah;
-            };
-            return { filterWilayah, setFilterWilayah, dropdownWilayahs, isPetugasLocked, isMatchWilayah };
+        // --- 4. KOMPONEN UI DASAR ---
+        const Icon = ({name, cl}) => <i className={`fas fa-${name} ${cl || ''}`}></i>;
+        const NavBtn = ({ic, lb, act, onClick}) => <button onClick={onClick} className={`flex items-center w-full px-4 py-3 text-sm font-bold rounded-lg transition-all ${act?'bg-blue-800 text-white shadow-inner':'text-blue-200 hover:bg-blue-800'}`}><Icon name={ic} cl="w-6 text-center text-lg mr-2"/>{lb}</button>;
+        
+        // --- 5. FITUR FILTER WILAYAH ---
+        const useWilayah = (data, isAdmin, cUser) => {
+            const uWil = cUser.wilayah ? cUser.wilayah.split(',').map(w=>w.trim()).filter(Boolean) : [];
+            const isLock = !isAdmin && uWil.length > 0;
+            const [fw, setFw] = useState(isLock ? uWil[0] || 'Semua' : 'Semua');
+            const drp = isLock ? ['Semua', ...uWil] : ['Semua', ...new Set(data.map(p=>p.wilayah).filter(Boolean))];
+            const isMatch = (w) => isLock ? (fw==='Semua' ? uWil.includes(w) : w===fw) : (fw==='Semua' || w===fw);
+            return { fw, setFw, drp, isLock, isMatch };
         };
 
-        // KOMPONEN LOGIN
-        function LoginScreen({ users, settings, onLogin, showToast }) {
-            const [user, setUser] = useState(''); const [pass, setPass] = useState('');
-            const handleLogin = (e) => { 
-                e.preventDefault(); 
-                if(users.length === 0 && user === 'admin' && pass === 'admin123') { onLogin({username: 'admin', role: 'Admin', wilayah: ''}); showToast('Selamat Datang Admin!'); return; }
-                const vUser = users.find(u => u.username === user && u.password === pass);
-                if(vUser) { onLogin({...vUser, role: vUser.role || 'Admin', wilayah: vUser.wilayah || ''}); showToast(`Selamat Datang ${vUser.role}!`); } else alert('Username atau Password Salah!'); 
+        // --- 6. LAYAR LOGIN ---
+        function Login({ users, set, onLogin, showToast }) {
+            const [u, setU] = useState(''); const [p, setP] = useState('');
+            const sub = (e) => {
+                e.preventDefault();
+                if(users.length===0 && u==='admin' && p==='admin123') return onLogin({username:'admin', role:'Admin', wilayah:''});
+                const v = users.find(x => x.username===u && x.password===p);
+                if(v) onLogin({...v, role:v.role||'Admin', wilayah:v.wilayah||''}); else alert('Gagal Login!');
             };
             return (
-                <div className="flex items-center justify-center min-h-[100dvh] bg-gradient-to-br from-blue-900 via-blue-800 to-blue-600 px-4">
-                    <form onSubmit={handleLogin} className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md transform transition-all">
-                        <div className="text-center mb-8">
-                            <div className="bg-blue-100 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4 overflow-hidden p-3 text-blue-600"><LogoRenderer logo={settings.logo} clName="text-5xl" /></div>
-                            <h2 className="text-2xl font-bold text-gray-800 uppercase leading-tight">{settings.appName}</h2>
-                            <p className="text-base text-blue-600 font-bold mt-1">{settings.appSubtitle}</p>
-                        </div>
-                        <div className="space-y-4">
-                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Username</label><input type="text" value={user} onChange={e=>setUser(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg outline-none" required/></div>
-                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Password</label><input type="password" value={pass} onChange={e=>setPass(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg outline-none" required/></div>
-                        </div>
-                        <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold mt-8 shadow-lg"><i className="fas fa-sign-in-alt mr-2"></i> Masuk Aplikasi</button>
+                <div className="flex items-center justify-center min-h-[100dvh] bg-blue-900 px-4">
+                    <form onSubmit={sub} className="bg-white p-8 rounded-2xl w-full max-w-md shadow-2xl text-center">
+                        <div className="bg-blue-100 w-24 h-24 rounded-full mx-auto mb-4 flex items-center justify-center text-blue-600 text-4xl">{set.logo&&set.logo.startsWith('data')?<img src={set.logo} className="w-full h-full object-contain p-2"/>:<Icon name="tint"/>}</div>
+                        <h2 className="text-2xl font-bold">{set.appName}</h2><p className="text-blue-600 font-bold mt-1 mb-6">{set.appSubtitle}</p>
+                        <input value={u} onChange={e=>setU(e.target.value)} placeholder="Username" className="w-full p-3 border rounded-lg mb-4 outline-none focus:border-blue-500" required/>
+                        <input value={p} onChange={e=>setP(e.target.value)} type="password" placeholder="Password" className="w-full p-3 border rounded-lg mb-6 outline-none focus:border-blue-500" required/>
+                        <button className="w-full bg-blue-600 text-white p-3 rounded-lg font-bold hover:bg-blue-700">Masuk</button>
                     </form>
                 </div>
             );
         }
 
-        // KOMPONEN DASHBOARD
-        function Dashboard({ pelanggan, tagihan, pengeluaran, keluhan, isAdmin, currentUser, settings }) {
-            const curMonth = getCurrentDateYMD().slice(0, 7);
-            const wFilter = useWilayahFilter(pelanggan, isAdmin, currentUser);
-            
-            const filPel = pelanggan.filter(p => wFilter.isMatchWilayah(p.wilayah));
-            const vPelIds = new Set(filPel.map(p => p.id));
-            const vTags = tagihan.filter(t => vPelIds.has(t.idPelanggan));
-            const tagsBln = vTags.filter(t => t.periode === curMonth);
-            
-            const pemasukan = tagsBln.reduce((s, t) => s + getTerbayar(t), 0);
-            const tunggakan = tagsBln.reduce((s, t) => s + getSisa(t), 0);
-            const totTunggak = vTags.reduce((s, t) => s + getSisa(t), 0);
-            
-            const bBln = settings?.batasBulanKritis !== undefined ? settings.batasBulanKritis : 3;
-            const bNom = settings?.batasNominalKritis !== undefined ? settings.batasNominalKritis : 350000;
-            const jmlKritis = Array.from(vPelIds).filter(id => checkKritis(vTags, id, bBln, bNom)).length;
+        // --- 7. DASHBOARD ---
+        function Dash({ pel, tag, peng, kel, adm, cUser, set }) {
+            const wf = useWilayah(pel, adm, cUser); const pMatch = pel.filter(p=>wf.isMatch(p.wilayah)); const pId = new Set(pMatch.map(p=>p.id));
+            const tgs = tag.filter(t=>pId.has(t.idPelanggan)); const tBln = tgs.filter(t=>t.periode===curYMD().slice(0,7));
+            const inBln = tBln.reduce((s,t)=>s+(t.terbayar||0),0), outBln = tBln.reduce((s,t)=>s+getSisa(t),0);
+            const bBln = set.batasBulanKritis||3, bNom = set.batasNominalKritis||350000;
+            const kr = Array.from(pId).filter(id=>checkKritis(tgs,id,bBln,bNom)).length;
+            const kP = kel?kel.filter(k=>k.status!=='Selesai'&&pId.has(k.idPelanggan)).length:0;
+            const pgB = (adm&&wf.fw==='Semua')?peng.filter(p=>p.tanggal.startsWith(curYMD().slice(0,7))).reduce((s,p)=>s+p.nominal,0):0;
 
-            const pengBln = (isAdmin && wFilter.filterWilayah === 'Semua') ? pengeluaran.filter(k => k.tanggal.startsWith(curMonth)).reduce((s, k) => s + Number(k.nominal), 0) : 0;
-            const kelPending = keluhan ? keluhan.filter(k => k.status !== 'Selesai' && vPelIds.has(k.idPelanggan)).length : 0;
+            const Box = ({t, v, c, i}) => <div className="bg-white p-5 rounded-xl border flex justify-between items-center"><div><p className="text-sm text-gray-500">{t}</p><p className={`text-xl font-bold text-${c}-600`}>{v}</p></div><div className={`p-3 bg-${c}-50 rounded-full text-${c}-500 text-2xl`}><Icon name={i}/></div></div>;
+            
+            return (
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center border-b pb-2"><h2 className="text-2xl font-bold">Dashboard</h2><select value={wf.fw} onChange={e=>wf.setFw(e.target.value)} className="p-2 border rounded-lg bg-white" disabled={wf.isLock&&wf.drp.length<2}>{wf.drp.map(w=><option key={w}>{w}</option>)}</select></div>
+                    <div className="bg-red-50 border-l-4 border-red-600 p-4 rounded-lg flex justify-between"><div className="text-red-800 font-bold"><Icon name="exclamation-triangle" cl="mr-2"/>STATUS KRITIS<div className="text-xs font-normal">Tunggakan &ge;{bBln} bln / &ge;{formatRp(bNom)}</div></div><div className="text-3xl font-black text-red-600 animate-pulse">{kr}</div></div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <Box t="Masuk Bln Ini" v={formatRp(inBln)} c="green" i="money-bill"/> <Box t="Sisa Bln Ini" v={formatRp(outBln)} c="yellow" i="exclamation"/>
+                        <Box t="Pelanggan Aktif" v={pMatch.filter(p=>p.status==='Aktif').length} c="blue" i="users"/> <Box t="Keluhan Baru" v={kP} c="orange" i="tools"/>
+                        {(adm&&wf.fw==='Semua') && <><Box t="Pengeluaran Bln Ini" v={formatRp(pgB)} c="red" i="minus-circle"/> <Box t="Laba Bersih Bln Ini" v={formatRp(inBln-pgB)} c="blue" i="chart-line"/></>}
+                    </div>
+                </div>
+            );
+        }
 
-            const chartData = Array.from({length: 6}, (_, i) => { const d = new Date(); d.setMonth(d.getMonth() - i); return d.toISOString().slice(0, 7); }).reverse()
-                .map(m => ({ label: formatBulanTahunSingkat(m), value: vTags.filter(t => t.periode === m).reduce((s, t) => s + getTerbayar(t), 0) }));
-            const maxVal = Math.max(...chartData.map(d => d.value), 100000) || 1;
+        // --- 8. PELANGGAN ---
+        function PelMgr({ data, toast, adm, cUser }) {
+            const wf = useWilayah(data, adm, cUser); const [m, setM] = useState(false); const [eId, setEId] = useState(null);
+            const [f, setF] = useState({no:'', nama:'', wil:'', rt:'', rw:'', st:'Aktif', hp:''}); const [src, setSrc] = useState('');
+            const fd = data.filter(p=>wf.isMatch(p.wilayah)&&(p.nama.toLowerCase().includes(src.toLowerCase())||p.noPelanggan.includes(src)));
+            
+            const open = (p=null) => { if(p){setEId(p.id);setF({no:p.noPelanggan, nama:p.nama, wil:p.wilayah||'', rt:p.rt, rw:p.rw, st:p.status, hp:p.noHp});}else{setEId(null);setF({no:'', nama:'', wil:wf.isLock?wf.drp[1]||'':'', rt:'', rw:'', st:'Aktif', hp:''});} setM(true); };
+            const save = async (e) => { e.preventDefault(); const pl={noPelanggan:f.no, nama:f.nama, wilayah:f.wil, rt:f.rt, rw:f.rw, status:f.st, noHp:f.hp}; try{if(eId)await DB_PUSAT.collection('pelanggan').doc(eId).update(pl);else await DB_PUSAT.collection('pelanggan').add(pl);setM(false);toast('Tersimpan!');}catch(e){alert(e.message);} };
+            const del = async (id) => { if(adm&&confirm('Hapus?')){await DB_PUSAT.collection('pelanggan').doc(id).delete();toast('Dihapus!');} };
+
+            return (
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center border-b pb-2"><h2 className="text-xl font-bold">Data Pelanggan</h2>{adm&&<button onClick={()=>open()} className="bg-blue-600 text-white px-3 py-1 rounded">Tambah</button>}</div>
+                    <div className="flex gap-2"><select value={wf.fw} onChange={e=>wf.setFw(e.target.value)} className="border p-2 rounded w-1/3" disabled={wf.isLock&&wf.drp.length<2}>{wf.drp.map(w=><option key={w}>{w}</option>)}</select><input placeholder="Cari..." value={src} onChange={e=>setSrc(e.target.value)} className="border p-2 rounded flex-1"/></div>
+                    <div className="bg-white border rounded-xl overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b"><tr><th className="p-3">No</th><th className="p-3">Nama</th><th className="p-3">Wilayah</th><th className="p-3">Status</th><th className="p-3">Aksi</th></tr></thead><tbody className="divide-y">{fd.map(p=><tr key={p.id}><td className="p-3">{p.noPelanggan}</td><td className="p-3 font-bold">{p.nama}</td><td className="p-3">{p.wilayah||'-'}</td><td className="p-3">{p.status}</td><td className="p-3"><button onClick={()=>open(p)} className="text-blue-600 mr-3"><Icon name="edit"/></button>{adm&&<button onClick={()=>del(p.id)} className="text-red-600"><Icon name="trash"/></button>}</td></tr>)}</tbody></table></div>
+                    {m && <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"><form onSubmit={save} className="bg-white p-6 rounded-xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Form Pelanggan</h3><input value={f.no} onChange={e=>setF({...f, no:e.target.value})} placeholder="No Pelanggan" className="w-full border p-2 mb-2 rounded" required/><input value={f.nama} onChange={e=>setF({...f, nama:e.target.value})} placeholder="Nama" className="w-full border p-2 mb-2 rounded" required/><input value={f.wil} onChange={e=>setF({...f, wil:e.target.value})} placeholder="Wilayah" className="w-full border p-2 mb-2 rounded" disabled={wf.isLock}/><div className="flex gap-2 mb-2"><input value={f.rt} onChange={e=>setF({...f, rt:e.target.value})} placeholder="RT" className="w-1/2 border p-2 rounded"/><input value={f.rw} onChange={e=>setF({...f, rw:e.target.value})} placeholder="RW" className="w-1/2 border p-2 rounded"/></div><select value={f.st} onChange={e=>setF({...f, st:e.target.value})} className="w-full border p-2 mb-4 rounded"><option>Aktif</option><option>Tidak Aktif</option></select><div className="flex justify-end gap-2"><button type="button" onClick={()=>setM(false)} className="px-4 py-2 border rounded">Batal</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Simpan</button></div></form></div>}
+                </div>
+            );
+        }
+
+        // --- 9. TAGIHAN ---
+        function TagMgr({ pel, tag, set, toast, adm, cUser }) {
+            const wf = useWilayah(pel, adm, cUser); const [per, setPer] = useState(curYMD().slice(0,7)); const [src, setSrc] = useState('');
+            const [fm, setFm] = useState(false); const [fInp, setFInp] = useState({}); const [sv, setSv] = useState(false);
+            const [m, setM] = useState(false); const [sP, setSP] = useState(null); const [eT, setET] = useState(null); const [mA, setMA] = useState(''); const [mAk, setMAk] = useState('');
+            const [pM, setPM] = useState(false); const [pN, setPN] = useState('');
+
+            const bb = set.batasBulanKritis||3, bn = set.batasNominalKritis||350000, kb = Math.max(0, Number(mAk)-Number(mA)), tot = (kb*set.tarif)+set.beban;
+            const fp = pel.filter(p=>p.status==='Aktif'||tag.some(t=>t.idPelanggan===p.id&&t.periode===per)).filter(p=>wf.isMatch(p.wilayah)).filter(p=>p.nama.toLowerCase().includes(src.toLowerCase()));
+
+            const getPrv = (id) => { const [y,m]=per.split('-'); let pm=parseInt(m)-1, py=parseInt(y); if(pm===0){pm=12;py-=1;} const pt=tag.find(x=>x.idPelanggan===id&&x.periode===`${py}-${pm.toString().padStart(2,'0')}`); return pt?pt.meterAkhir:0; };
+            
+            const openT = (p) => { const t=tag.find(x=>x.idPelanggan===p.id&&x.periode===per); setSP(p); setET(t); if(t){setMA(t.meterAwal);setMAk(t.meterAkhir);}else{setMA(getPrv(p.id));setMAk('');} setM(true); };
+            const svT = async (e) => { e.preventDefault(); const pl={idPelanggan:sP.id, periode:per, meterAwal:Number(mA), meterAkhir:Number(mAk), total:tot, terbayar:eT?eT.terbayar||0:0, status:eT?eT.status:'Belum Terbayar'}; try{if(eT)await DB_PUSAT.collection('tagihan').doc(eT.id).update(pl);else await DB_PUSAT.collection('tagihan').add(pl);setM(false);toast('Tersimpan!');}catch(e){alert(e.message);} };
+            const delT = async (id) => { if(adm&&confirm('Hapus Tagihan?')){await DB_PUSAT.collection('tagihan').doc(id).delete();setM(false);toast('Dihapus!');} };
+
+            const svMas = async () => { setSv(true); let c=0; try{await Promise.all(fp.map(async p=>{ const v=fInp[p.id]; if(v!==undefined&&v!==''){ const mE=Number(v), t=tag.find(x=>x.idPelanggan===p.id&&x.periode===per), mS=t?t.meterAwal:getPrv(p.id), th=(Math.max(0,mE-mS)*set.tarif)+set.beban; if(t){if(t.meterAkhir!==mE){await DB_PUSAT.collection('tagihan').doc(t.id).update({meterAkhir:mE, total:th, meterAwal:mS});c++;}}else{await DB_PUSAT.collection('tagihan').add({idPelanggan:p.id, periode:per, meterAwal:mS, meterAkhir:mE, total:th, terbayar:0, status:'Belum Terbayar'});c++;} } })); if(c>0)toast(`${c} Tersimpan!`); setFInp({}); setFm(false); }catch(e){alert(e.message);} setSv(false); };
+
+            const openP = (p) => { setSP(p); setPN(''); setPM(true); };
+            const svP = async (e) => {
+                e.preventDefault(); let u=Number(pN); const as=u; if(u<0)return;
+                try {
+                    const cT=tag.find(t=>t.idPelanggan===sP.id&&t.periode===per), ul=tag.filter(t=>t.idPelanggan===sP.id&&getSisa(t)>0&&t.periode!==per).sort((a,b)=>a.periode.localeCompare(b.periode));
+                    const tHut = (cT?getSisa(cT):0)+ul.reduce((s,t)=>s+getSisa(t),0), kmb = Math.max(0, as-tHut), tId = cT?cT.id:(ul.length?ul[ul.length-1].id:null);
+                    const pay = async (t) => { const s=getSisa(t), b=Math.min(u,s); await DB_PUSAT.collection('tagihan').doc(t.id).update({terbayar:(t.terbayar||0)+b, status:((t.terbayar||0)+b)>=t.total?'Terbayar':'Belum Terbayar', petugasPenagih:cUser.username, ...(t.id===tId&&{uangDiserahkan:as, kembalian:kmb})}); u-=b; };
+                    if(cT&&u>0){ if(getSisa(cT)>0) await pay(cT); else if(cT.id===tId) await DB_PUSAT.collection('tagihan').doc(cT.id).update({uangDiserahkan:as, kembalian:kmb, petugasPenagih:cUser.username}); }
+                    if(u>0) for(let t of ul){ if(u<=0)break; await pay(t); } setPM(false); toast('Pembayaran Sukses!');
+                } catch(err){alert(err.message);}
+            };
+
+            const doCtk = (p, t, wa) => {
+                const tgL=getTunggakan(tag, p.id, t.periode), ht=tag.filter(x=>x.idPelanggan===p.id).reduce((s,x)=>s+getSisa(x),0), pet=t.petugasPenagih||cUser.username;
+                if(wa){ copyText(`Yth. ${p.nama},\nTagihan HIPAB ${formatBulanTahunLengkap(t.periode)}\n\nM.Awal: ${t.meterAwal}\nM.Akhir: ${t.meterAkhir}\nTotal: ${formatRp(t.total+tgL)}\nStatus: ${ht<=0?'LUNAS':'BELUM LUNAS'}`); toast('Disalin!'); return; }
+                const h = `<div class="tc"><div class="title">${set.appName}</div><div>Srikoyo</div></div><hr/><table><tr><td>NO</td><td>: ${p.noPelanggan}</td></tr><tr><td>NAMA</td><td>: ${p.nama}</td></tr><tr><td>PERIODE</td><td>: ${t.periode}</td></tr></table><hr/><table><tr><td>M.AWAL</td><td class="tr">${t.meterAwal}</td></tr><tr><td>M.AKHIR</td><td class="tr">${t.meterAkhir}</td></tr></table><hr/><table><tr><td>TAGIHAN</td><td class="tr">${formatRp(t.total)}</td></tr><tr><td>TUNGGAKAN</td><td class="tr">${formatRp(tgL)}</td></tr><tr class="b"><td>TOTAL</td><td class="tr">${formatRp(t.total+tgL)}</td></tr></table><hr/><table><tr class="b" style="color:red"><td>SISA HUTANG</td><td class="tr">${formatRp(ht)}</td></tr></table><hr/><div class="tc"><div class="b">${ht<=0?'LUNAS':'BELUM LUNAS'}</div><div>PTGS: ${pet}</div></div>`;
+                printDoc(h, window.innerWidth<768); toast('Mencetak...');
+            };
+
+            return (
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center border-b pb-2"><h2 className="text-xl font-bold">Tagihan</h2><button onClick={()=>setFm(!fm)} className="bg-indigo-600 text-white px-3 py-1 rounded text-sm">{fm?'Tutup Keliling':'Mode Keliling'}</button></div>
+                    <div className="flex gap-2 mb-2"><select value={wf.fw} onChange={e=>wf.setFw(e.target.value)} className="border p-2 rounded flex-1" disabled={wf.isLock}>{wf.drp.map(w=><option key={w}>{w}</option>)}</select><input type="month" value={per} onChange={e=>setPer(e.target.value)} className="border p-2 rounded flex-1"/><input placeholder="Cari..." value={src} onChange={e=>setSrc(e.target.value)} className="border p-2 rounded flex-1"/></div>
+                    
+                    {fm ? (
+                        <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200"><div className="flex justify-between mb-4"><h3 className="font-bold">Mode Cepat</h3><button onClick={svMas} className="bg-green-600 text-white px-4 py-1 rounded">{sv?'Menyimpan...':'Simpan Semua'}</button></div><div className="space-y-2">{fp.map(p=>{const t=tag.find(x=>x.idPelanggan===p.id&&x.periode===per), mS=t?t.meterAwal:getPrv(p.id), v=fInp[p.id]!==undefined?fInp[p.id]:(t?t.meterAkhir:''), b=v!==''?checkBocor(tag,p.id,Math.max(0,Number(v)-mS),per):false; return (<div key={p.id} className="bg-white p-3 rounded flex justify-between items-center border"><div><div className="font-bold text-sm truncate">{p.nama}</div><div className="text-xs text-gray-500">Aw: {mS}</div></div><div className="w-1/2"><input type="number" value={v} onChange={e=>setFInp({...fInp,[p.id]:e.target.value})} className="border-2 p-1 w-full rounded text-center font-bold" placeholder="Akhir"/>{b&&<div className="text-[10px] text-red-600 text-center font-bold">⚠️ Bocor</div>}</div></div>)})}</div></div>
+                    ) : (
+                        <div className="space-y-3">{fp.map(p=>{ const t=tag.find(x=>x.idPelanggan===p.id&&x.periode===per), ht=tag.filter(x=>x.idPelanggan===p.id).reduce((s,x)=>s+getSisa(x),0); if(!t) return (<div key={p.id} className="bg-white p-3 rounded border flex justify-between items-center"><div><div className="font-bold">{p.nama}</div></div><button onClick={()=>openT(p)} className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-xs">+ Input</button></div>); return (<div key={p.id} className={`bg-white p-4 rounded-xl shadow-sm border ${checkKritis(tag,p.id,bb,bn)?'border-red-300':''}`}><div className="flex justify-between items-start mb-2 border-b pb-2"><div><div className="font-bold">{p.nama}</div></div><div className="text-right"><div className="text-[10px]">Hutang</div><div className={`font-black ${ht>0?'text-red-600':'text-green-600'}`}>{ht<=0?'LUNAS':formatRp(ht)}</div></div></div><div className="flex justify-between text-sm mb-3"><div>Aw: <b>{t.meterAwal}</b></div><div>Ak: <b>{t.meterAkhir}</b></div><div className="text-blue-600 font-bold">{formatRp(t.total)}</div></div><div className="grid grid-cols-4 gap-2"><button onClick={()=>openP(p)} className="col-span-2 bg-yellow-400 text-yellow-900 py-2 rounded font-bold text-xs">BAYAR</button><button onClick={()=>doCtk(p,t,false)} className="bg-gray-100 py-2 rounded text-gray-600"><Icon name="print"/></button><button onClick={()=>doCtk(p,t,true)} className="bg-green-100 py-2 rounded text-green-600"><Icon name="whatsapp" cl="fab fa-whatsapp"/></button><button onClick={()=>openT(p)} className="col-span-4 bg-blue-50 text-blue-600 py-1.5 rounded text-xs">Edit Tagihan</button></div></div>)})}</div>
+                    )}
+
+                    {m && <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"><form onSubmit={svT} className="bg-white p-6 rounded-xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Input: {sP.nama}</h3><div className="flex gap-2 mb-4"><input type="number" value={mA} onChange={e=>setMA(e.target.value)} placeholder="M.Awal" className="border p-2 w-1/2 rounded" required/><input type="number" value={mAk} onChange={e=>setMAk(e.target.value)} placeholder="M.Akhir" className="border p-2 w-1/2 rounded" required/></div><div className="font-bold text-lg mb-6 text-center">Total: {formatRp(tot)}</div><div className="flex justify-end gap-2">{eT&&adm&&<button type="button" onClick={()=>delT(eT.id)} className="mr-auto text-red-600 p-2"><Icon name="trash"/></button>}<button type="button" onClick={()=>setM(false)} className="px-4 py-2 border rounded">Batal</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Simpan</button></div></form></div>}
+                    {pM && <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"><form onSubmit={svP} className="bg-white p-6 rounded-xl w-full max-w-sm"><h3 className="font-bold text-lg mb-2">Terima Uang</h3><p className="mb-4 font-bold text-red-600 text-center border-b pb-2">Total Hutang: {formatRp((tag.find(t=>t.idPelanggan===sP.id&&t.periode===per)?getSisa(tag.find(t=>t.idPelanggan===sP.id&&t.periode===per)):0)+tag.filter(t=>t.idPelanggan===sP.id&&getSisa(t)>0&&t.periode!==per).reduce((s,t)=>s+getSisa(t),0))}</p><input type="number" value={pN} onChange={e=>setPN(e.target.value)} className="border-2 p-3 w-full rounded text-center text-xl font-bold mb-6 focus:border-green-500 outline-none" placeholder="Uang Diserahkan" required/><div className="flex justify-end gap-2"><button type="button" onClick={()=>setPM(false)} className="px-4 py-2 border rounded">Batal</button><button type="submit" className="px-4 py-2 bg-green-600 text-white rounded font-bold">Proses Bayar</button></div></form></div>}
+                </div>
+            );
+        }
+
+        // --- 10. BUKU KAS & KELUHAN ---
+        function PengMgr({ data, toast }) {
+            const [m, setM] = useState(false); const [f, setF] = useState({tgl:curYMD(), ket:'', nom:''});
+            const sv = async (e) => { e.preventDefault(); await DB_PUSAT.collection('pengeluaran').add({tanggal:f.tgl, keterangan:f.ket, nominal:Number(f.nom)}); setM(false); toast('Tersimpan!'); };
+            return (<div className="space-y-4"><div className="flex justify-between items-center border-b pb-2"><h2 className="text-xl font-bold">Buku Kas</h2><button onClick={()=>setM(true)} className="bg-red-600 text-white px-3 py-1 rounded">Tambah</button></div><div className="bg-white border rounded-xl overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b"><tr><th className="p-3">Tgl</th><th className="p-3">Ket</th><th className="p-3">Nominal</th><th className="p-3">Aksi</th></tr></thead><tbody className="divide-y">{[...data].sort((a,b)=>new Date(b.tanggal)-new Date(a.tanggal)).map(k=><tr key={k.id}><td className="p-3">{k.tanggal}</td><td className="p-3">{k.keterangan}</td><td className="p-3 font-bold text-red-600">{formatRp(k.nominal)}</td><td className="p-3"><button onClick={async()=>{if(confirm('Hapus?'))await DB_PUSAT.collection('pengeluaran').doc(k.id).delete();toast('Dihapus!');}} className="text-red-600"><Icon name="trash"/></button></td></tr>)}</tbody></table></div>{m && <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"><form onSubmit={sv} className="bg-white p-6 rounded-xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Pengeluaran</h3><input type="date" value={f.tgl} onChange={e=>setF({...f, tgl:e.target.value})} className="border p-2 w-full mb-2 rounded" required/><input value={f.ket} onChange={e=>setF({...f, ket:e.target.value})} placeholder="Keterangan" className="border p-2 w-full mb-2 rounded" required/><input type="number" value={f.nom} onChange={e=>setF({...f, nom:e.target.value})} placeholder="Nominal" className="border p-2 w-full mb-4 rounded" required/><div className="flex justify-end gap-2"><button type="button" onClick={()=>setM(false)} className="px-4 py-2 border rounded">Batal</button><button type="submit" className="bg-red-600 text-white px-4 py-2 rounded">Simpan</button></div></form></div>}</div>);
+        }
+
+        function KelMgr({ data, pel, toast, adm, cUser }) {
+            const wf = useWilayah(pel, adm, cUser); const [m, setM] = useState(false); const [eId, setEId] = useState(null); const [f, setF] = useState({tgl:curYMD(), idPel:'', kel:'', st:'Menunggu'}); const [src, setSrc] = useState('');
+            const fd = data.filter(k=>wf.isMatch((pel.find(p=>p.id===k.idPelanggan)||{}).wilayah)).filter(k=>!src||(pel.find(x=>x.id===k.idPelanggan)?.nama||'').toLowerCase().includes(src.toLowerCase())).sort((a,b)=>new Date(b.tanggal)-new Date(a.tanggal));
+            const sv = async (e) => { e.preventDefault(); const pl={tanggal:f.tgl, idPelanggan:f.idPel, keluhan:f.kel, status:f.st}; if(eId)await DB_PUSAT.collection('keluhan').doc(eId).update(pl); else await DB_PUSAT.collection('keluhan').add(pl); setM(false); toast('Tersimpan!'); };
+            return (<div className="space-y-4"><div className="flex justify-between items-center border-b pb-2"><h2 className="text-xl font-bold">Keluhan</h2><button onClick={()=>{setEId(null);setM(true);}} className="bg-orange-600 text-white px-3 py-1 rounded">Tambah</button></div><input placeholder="Cari Pelapor..." value={src} onChange={e=>setSrc(e.target.value)} className="border p-2 w-full rounded"/><div className="space-y-3">{fd.map(k=><div key={k.id} className="bg-white p-4 rounded-xl border flex justify-between items-center"><div><div className="font-bold">{pel.find(p=>p.id===k.idPelanggan)?.nama||'-'}</div><div className="text-sm text-red-600">{k.keluhan}</div><div className="text-xs bg-gray-100 inline-block px-2 py-1 mt-1 rounded">{k.status}</div></div><div><button onClick={()=>{setEId(k.id);setF({tgl:k.tanggal, idPel:k.idPelanggan, kel:k.keluhan, st:k.status});setM(true);}} className="text-blue-600 p-2"><Icon name="edit"/></button>{adm&&<button onClick={async()=>{if(confirm('Hapus?'))await DB_PUSAT.collection('keluhan').doc(k.id).delete();toast('Dihapus!');}} className="text-red-600 p-2"><Icon name="trash"/></button>}</div></div>)}</div>{m && <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"><form onSubmit={sv} className="bg-white p-6 rounded-xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Form Keluhan</h3><select value={f.idPel} onChange={e=>setF({...f, idPel:e.target.value})} className="border p-2 w-full mb-2 rounded" required><option value="">Pilih Warga...</option>{pel.filter(p=>wf.isMatch(p.wilayah)).map(p=><option key={p.id} value={p.id}>{p.nama}</option>)}</select><textarea value={f.kel} onChange={e=>setF({...f, kel:e.target.value})} placeholder="Isi Keluhan" className="border p-2 w-full mb-2 rounded" required/><select value={f.st} onChange={e=>setF({...f, st:e.target.value})} className="border p-2 w-full mb-4 rounded"><option>Menunggu</option><option>Proses</option><option>Selesai</option></select><div className="flex justify-end gap-2"><button type="button" onClick={()=>setM(false)} className="px-4 py-2 border rounded">Batal</button><button type="submit" className="bg-orange-600 text-white px-4 py-2 rounded">Simpan</button></div></form></div>}</div>);
+        }
+
+        // --- 11. PENGATURAN ---
+        function PengMgr({ set, admU, toast }) {
+            const dp = { 'Admin': ['dash','pel','tag','kel','peng','lap','set'], 'Petugas': ['pel','tag','kel'], 'Ketua HIPAB': ['dash','lap'] };
+            const [fS, setFs] = useState(set); const [u, setU] = useState([]); const [ld, setLd] = useState(false);
+            useEffect(() => { if (admU?.length > 0 && !ld) { setU(admU); setLd(true); } }, [admU, ld]);
+            useEffect(() => { if (set) setFs(set); }, [set]);
+            
+            const sv = async (e) => { e.preventDefault(); if(u.some(x=>!x.username.trim()||!x.password.trim()))return alert("User/Pass kosong!"); try{ await DB_PUSAT.collection('pengaturan').doc('konfigurasi').set({...fS, tarif:Number(fS.tarif||0), beban:Number(fS.beban||0), batasBulanKritis:Number(fS.batasBulanKritis||3), batasNominalKritis:Number(fS.batasNominalKritis||350000)}); await DB_PUSAT.collection('pengaturan').doc('users').set({list:u}); toast("Disimpan!"); }catch(err){alert(err.message);} };
 
             return (
                 <div className="space-y-6">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Dashboard {wFilter.filterWilayah !== 'Semua' ? `(${wFilter.filterWilayah})` : ''}</h2>
-                        <div className="flex gap-2 items-center">
-                            <label className="text-sm font-medium text-gray-600 hidden md:block">Filter Wilayah:</label>
-                            <select value={wFilter.filterWilayah} onChange={e=>wFilter.setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm outline-none bg-white font-bold text-blue-800 shadow-sm" disabled={wFilter.isPetugasLocked && wFilter.dropdownWilayahs.length <= 1}>
-                                {wFilter.dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? (wFilter.isPetugasLocked ? 'Semua Wilayah Tugas' : 'Semua Wilayah') : w}</option>)}
-                            </select>
+                    <h2 className="text-2xl font-bold border-b pb-2">Pengaturan</h2>
+                    <div className="bg-white p-5 rounded-xl border">
+                        <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div><label className="text-xs">Nama App</label><input value={fS.appName||''} onChange={e=>setFs({...fS, appName:e.target.value})} className="border p-2 w-full rounded"/></div>
+                            <div><label className="text-xs">Unit</label><input value={fS.appSubtitle||''} onChange={e=>setFs({...fS, appSubtitle:e.target.value})} className="border p-2 w-full rounded"/></div>
+                            <div><label className="text-xs">Tarif/m3 (Rp)</label><input type="number" value={fS.tarif} onChange={e=>setFs({...fS, tarif:e.target.value})} className="border p-2 w-full rounded"/></div>
+                            <div><label className="text-xs">Beban (Rp)</label><input type="number" value={fS.beban} onChange={e=>setFs({...fS, beban:e.target.value})} className="border p-2 w-full rounded"/></div>
+                            <div><label className="text-xs">Batas Bln Kritis</label><input type="number" value={fS.batasBulanKritis} onChange={e=>setFs({...fS, batasBulanKritis:e.target.value})} className="border p-2 w-full rounded"/></div>
+                            <div><label className="text-xs">Batas Nom Kritis</label><input type="number" value={fS.batasNominalKritis} onChange={e=>setFs({...fS, batasNominalKritis:e.target.value})} className="border p-2 w-full rounded"/></div>
                         </div>
                     </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <div className="bg-red-50 border-l-4 border-red-600 p-5 rounded-xl shadow-sm flex justify-between items-center lg:col-span-3">
-                            <div><p className="text-sm font-bold text-red-800 mb-1"><i className="fas fa-exclamation-triangle mr-1"></i> STATUS KRITIS (Wajib Ditagih)</p><p className="text-xs text-red-600">Pelanggan dengan tunggakan &ge;{bBln} bln ATAU &ge;{formatRp(bNom)}.</p></div>
-                            <div className="text-right"><p className="text-3xl font-black text-red-700 animate-pulse">{jmlKritis}</p><p className="text-[10px] font-bold text-red-500 uppercase">Orang</p></div>
-                        </div>
-                        {[{t: 'Pemasukan Bulan Ini', v: formatRp(pemasukan), c: 'green', i: 'fa-hand-holding-usd'},{t: 'Sisa Tagihan Bulan Ini', v: formatRp(tunggakan), c: 'yellow', i: 'fa-exclamation-triangle'},{t: 'Total Seluruh Tunggakan', v: formatRp(totTunggak), c: 'red', i: 'fa-file-invoice-dollar'},{t: 'Pelanggan Aktif', v: `${filPel.filter(p=>p.status==='Aktif').length} Orang`, c: 'blue', i: 'fa-users'},{t: 'Keluhan Menunggu', v: `${kelPending} Laporan`, c: 'orange', i: 'fa-tools'}].map(c => (
-                            <div key={c.t} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">{c.t}</p><p className={`text-xl font-bold text-${c.c}-600`}>{c.v}</p></div><div className={`bg-${c.c}-50 p-3 rounded-full`}><i className={`fas ${c.i} text-2xl text-${c.c}-500`}></i></div></div>
-                        ))}
-                        {(isAdmin && wFilter.filterWilayah === 'Semua') && <>
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Pengeluaran Bln Ini</p><p className="text-xl font-bold text-red-600">{formatRp(pengBln)}</p></div><div className="bg-red-50 p-3 rounded-full"><i className="fas fa-money-bill-wave text-2xl text-red-500"></i></div></div>
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center"><div><p className="text-sm font-medium text-gray-500">Laba Bersih Bln Ini</p><p className="text-xl font-bold text-blue-800">{formatRp(pemasukan - pengBln)}</p></div><div className="bg-blue-50 p-3 rounded-full"><i className="fas fa-piggy-bank text-2xl text-blue-500"></i></div></div>
-                        </>}
+                    <div className="bg-white p-5 rounded-xl border">
+                        <div className="flex justify-between mb-3"><h3 className="font-bold">Akun Login</h3><button onClick={()=>setU([...u, {id:Date.now().toString(), username:'', password:'', role:'Petugas', wilayah:''}])} className="bg-gray-200 px-2 rounded text-sm">+ User</button></div>
+                        <div className="space-y-2">{u.map((x,i)=><div key={x.id} className="flex gap-2 flex-wrap bg-gray-50 p-2 rounded"><input value={x.username} onChange={e=>setU(u.map(y=>y.id===x.id?{...y,username:e.target.value}:y))} placeholder="User" className="border p-1 rounded w-24 flex-1"/><input value={x.password} onChange={e=>setU(u.map(y=>y.id===x.id?{...y,password:e.target.value}:y))} placeholder="Pass" className="border p-1 rounded w-24 flex-1"/><select value={x.role} onChange={e=>setU(u.map(y=>y.id===x.id?{...y,role:e.target.value}:y))} className="border p-1 rounded w-24"><option>Admin</option><option>Petugas</option><option>Ketua HIPAB</option></select><input value={x.wilayah||''} onChange={e=>setU(u.map(y=>y.id===x.id?{...y,wilayah:e.target.value}:y))} placeholder="Wilayah (Opsional)" className="border p-1 rounded flex-1"/><button onClick={()=>setU(u.filter(y=>y.id!==x.id))} className="text-red-500 px-2"><Icon name="trash"/></button></div>)}</div>
                     </div>
-
-                    <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 mt-8">
-                        <h3 className="text-lg font-bold mb-6 text-gray-700">Grafik Pemasukan (Berdasarkan Uang Masuk)</h3>
-                        <div className="flex items-end space-x-2 md:space-x-4 h-64 border-b border-l border-gray-200 pb-2 pl-2">
-                            {chartData.map((d, i) => (
-                                <div key={i} className="flex flex-col items-center flex-1 h-full justify-end group">
-                                    <div className="w-full bg-blue-500 rounded-t-sm hover:bg-blue-600 transition-all relative flex justify-center" style={{ height: `${(d.value / maxVal) * 100}%`, minHeight: '5%' }}>
-                                        <span className="opacity-0 group-hover:opacity-100 absolute -top-8 bg-gray-800 text-white text-xs py-1 px-2 rounded whitespace-nowrap z-10 transition-opacity pointer-events-none">{formatRp(d.value)}</span>
-                                    </div>
-                                    <span className="text-[10px] md:text-xs mt-2 text-gray-500 font-medium text-center">{d.label}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+                    <button onClick={sv} disabled={!ld} className="w-full bg-blue-600 text-white p-3 rounded-xl font-bold">{ld?'SIMPAN PENGATURAN':'Memuat...'}</button>
                 </div>
             );
         }
 
-        // KOMPONEN PELANGGAN
-        function PelangganManager({ data, showToast, isAdmin, currentUser }) {
-            const wFilter = useWilayahFilter(data, isAdmin, currentUser);
-            const [modal, setModal] = useState(false); const [editId, setEditId] = useState(null);
-            const [form, setForm] = useState({ no: '', nama: '', wilayah: '', rt: '', rw: '', status: 'Aktif', hp: '' });
-            const [search, setSearch] = useState(''); const [fStatus, setFStatus] = useState('Semua'); const [sortBy, setSortBy] = useState('noPelanggan');
-
-            const filteredData = data.filter(p => wFilter.isMatchWilayah(p.wilayah))
-                .filter(p => fStatus === 'Semua' || p.status === fStatus)
-                .filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
-                .sort((a, b) => {
-                    if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true});
-                    if (sortBy === 'wilayah') return (a.wilayah || '').localeCompare(b.wilayah || '');
-                    return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true});
-                });
-
-            const openModal = (p = null) => {
-                if(p) { setEditId(p.id); setForm({ no: p.noPelanggan, nama: p.nama, wilayah: p.wilayah || '', rt: p.rt, rw: p.rw, status: p.status, hp: p.noHp }); }
-                else { setEditId(null); setForm({ no: '', nama: '', wilayah: wFilter.isPetugasLocked ? wFilter.dropdownWilayahs[1] || '' : '', rt: '', rw: '', status: 'Aktif', hp: '' }); }
-                setModal(true);
-            };
-
-            const simpan = async (e) => {
-                e.preventDefault(); const payload = { noPelanggan: form.no, nama: form.nama, wilayah: form.wilayah, rt: form.rt, rw: form.rw, status: form.status, noHp: form.hp };
-                try { if(editId) await DB_PUSAT.collection('pelanggan').doc(editId).update(payload); else await DB_PUSAT.collection('pelanggan').add(payload);
-                setModal(false); showToast('Data Pelanggan Tersimpan'); } catch(err) { alert(err.message); }
-            };
-
-            const hapus = async (id) => { 
-                if(!isAdmin) return alert("Hanya Admin yang bisa menghapus data!");
-                if(window.confirm('Yakin ingin menghapus pelanggan ini?')) { await DB_PUSAT.collection('pelanggan').doc(id).delete(); showToast('Data Dihapus'); }
-            };
-
-            const handleFileUpload = (e) => {
-                const file = e.target.files[0]; if (!file) return; const reader = new FileReader();
-                reader.onload = async (event) => {
-                    const rows = event.target.result.split(/\r?\n/).filter(r => r.trim() !== '');
-                    if (rows.length < 2) return alert('Format salah.');
-                    const delim = rows[0].includes(';') ? ';' : ','; const isNew = rows[0].toLowerCase().includes('wilayah');
-                    let succ = 0;
-                    for (let i = 1; i < rows.length; i++) {
-                        const c = rows[i].split(delim).map(x => x.replace(/^"|"$/g, '').trim());
-                        if (c.length >= 2) {
-                            await DB_PUSAT.collection('pelanggan').add(isNew 
-                                ? { noPelanggan: c[0]||'', nama: c[1]||'', wilayah: c[2]||'', rt: c[3]||'', rw: c[4]||'', status: (c[5]&&c[5].toLowerCase().includes('tidak'))?'Tidak Aktif':'Aktif', noHp: c[6]||'' }
-                                : { noPelanggan: c[0]||'', nama: c[1]||'', wilayah: '', rt: c[2]||'', rw: c[3]||'', status: (c[4]&&c[4].toLowerCase().includes('tidak'))?'Tidak Aktif':'Aktif', noHp: c[5]||'' });
-                            succ++;
-                        }
-                    }
-                    showToast(`${succ} Diimport!`); e.target.value = null;
-                }; reader.readAsText(file);
-            };
-            const downloadCSV = () => {
-                const csv = "NoPelanggan;Nama;Wilayah;RT;RW;Status;NoHp\n" + filteredData.map(p => `"${p.noPelanggan}";"${p.nama}";"${p.wilayah || ''}";"${p.rt}";"${p.rw}";"${p.status}";"${p.noHp}"`).join('\n');
-                const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\ufeff", csv], { type: 'text/csv;charset=utf-8;' }));
-                link.download = "Data_Pelanggan.csv"; link.click();
-            };
-
-            return (
-                <div className="space-y-4">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Pelanggan</h2>
-                        <div className="flex flex-wrap gap-2 w-full md:w-auto items-center">
-                            <select value={wFilter.filterWilayah} onChange={e=>wFilter.setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm bg-white shadow-sm" disabled={wFilter.isPetugasLocked && wFilter.dropdownWilayahs.length <= 1}>
-                                {wFilter.dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? 'Semua Wilayah' : w}</option>)}
-                            </select>
-                            <select value={fStatus} onChange={e=>setFStatus(e.target.value)} className="border p-2 rounded-lg text-sm bg-white"><option value="Semua">Semua Status</option><option value="Aktif">Aktif</option><option value="Tidak Aktif">Tidak Aktif</option></select>
-                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="border p-2 rounded-lg text-sm bg-white hidden md:inline-block"><option value="noPelanggan">Urut No</option><option value="wilayah">Urut Wilayah</option><option value="rtRw">Urut RT/RW</option></select>
-                            <div className="relative flex-1 md:w-40"><i className="fas fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm"/></div>
-                            {isAdmin && <button onClick={()=>openModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"><i className="fas fa-plus md:mr-2"></i> <span className="hidden md:inline">Tambah</span></button>}
-                            {isAdmin && <div className="flex bg-white rounded-lg p-1 border">
-                                <div className="relative overflow-hidden inline-block border-r pr-1"><input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" /><button className="text-green-600 px-3 py-1.5 text-sm flex items-center pointer-events-none"><i className="fas fa-file-import md:mr-2"></i> <span className="hidden md:inline">Import</span></button></div>
-                                <button onClick={downloadCSV} className="text-gray-700 hover:bg-gray-100 px-3 py-1.5 text-sm ml-1"><i className="fas fa-file-download md:mr-2"></i> <span className="hidden md:inline">Export</span></button>
-                            </div>}
-                        </div>
-                    </div>
-                    
-                    <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-                        <table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b"><tr><th className="p-4">No.</th><th className="p-4">Nama</th><th className="p-4">Wilayah</th><th className="p-4">RT/RW</th><th className="p-4">No HP</th><th className="p-4">Status</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">
-                            {filteredData.map(p => (
-                                <tr key={p.id} className="hover:bg-gray-50">
-                                    <td className="p-4 font-medium">{p.noPelanggan}</td><td className="p-4">{p.nama}</td><td className="p-4">{p.wilayah || '-'}</td><td className="p-4">{p.rt}/{p.rw}</td><td className="p-4">{p.noHp}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-semibold ${p.status==='Aktif'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{p.status}</span></td>
-                                    <td className="p-4 text-center space-x-3"><button onClick={()=>openModal(p)} className="text-blue-500 hover:text-blue-700"><i className="fas fa-edit"></i></button>{isAdmin && <button onClick={()=>hapus(p.id)} className="text-red-500 hover:text-red-700"><i className="fas fa-trash"></i></button>}</td>
-                                </tr>
-                            ))}
-                            {filteredData.length === 0 && <tr><td colSpan="7" className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>}
-                        </tbody></table>
-                    </div>
-
-                    <div className="md:hidden space-y-4">
-                        {filteredData.map(p => (
-                            <div key={p.id} className="bg-white p-4 rounded-xl shadow-sm border relative">
-                                <div className="absolute top-4 right-4"><span className={`px-2 py-1 rounded text-[10px] font-bold ${p.status==='Aktif'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{p.status}</span></div>
-                                <div className="pr-16"><h3 className="font-bold text-gray-800 text-base mb-1">{p.nama}</h3><div className="text-xs text-gray-500 space-y-1 mb-3"><p><i className="fas fa-id-badge w-4"></i> No: {p.noPelanggan}</p><p><i className="fas fa-map-marker w-4"></i> Wilayah: {p.wilayah||'-'} (RT {p.rt} / RW {p.rw})</p><p><i className="fas fa-phone w-4"></i> HP: {p.noHp||'-'}</p></div></div>
-                                <div className="flex justify-end gap-2 border-t pt-3"><button onClick={()=>openModal(p)} className="flex-1 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-bold"><i className="fas fa-edit mr-2"></i> Edit</button>{isAdmin && <button onClick={()=>hapus(p.id)} className="flex-1 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-bold"><i className="fas fa-trash mr-2"></i> Hapus</button>}</div>
-                            </div>
-                        ))}
-                    </div>
-
-                    {modal && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
-                                <h3 className="font-bold text-xl mb-5 text-gray-800">{editId ? 'Edit Pelanggan' : 'Tambah Pelanggan'}</h3>
-                                <div className="space-y-4 mb-6">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-xs font-medium text-gray-600 mb-1">No Pelanggan</label><input value={form.no} onChange={e=>setForm({...form, no:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500" required /></div>
-                                        <div><label className="text-xs font-medium text-gray-600 mb-1">No HP</label><input value={form.hp} onChange={e=>setForm({...form, hp:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500" /></div>
-                                    </div>
-                                    <div><label className="text-xs font-medium text-gray-600 mb-1">Nama Lengkap</label><input value={form.nama} onChange={e=>setForm({...form, nama:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500" required /></div>
-                                    <div><label className="text-xs font-medium text-gray-600 mb-1">Wilayah</label><input value={form.wilayah} onChange={e=>setForm({...form, wilayah:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500" disabled={wFilter.isPetugasLocked} /></div>
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div><label className="text-xs font-medium text-gray-600 mb-1">RT</label><input value={form.rt} onChange={e=>setForm({...form, rt:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500" /></div>
-                                        <div><label className="text-xs font-medium text-gray-600 mb-1">RW</label><input value={form.rw} onChange={e=>setForm({...form, rw:e.target.value})} className="border p-2 w-full rounded focus:ring-2 focus:ring-blue-500" /></div>
-                                        <div><label className="text-xs font-medium text-gray-600 mb-1">Status</label><select value={form.status} onChange={e=>setForm({...form, status:e.target.value})} className="border p-2 w-full rounded"><option>Aktif</option><option>Tidak Aktif</option></select></div>
-                                    </div>
-                                </div>
-                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-5 py-2 border rounded-lg text-gray-600">Batal</button><button type="submit" className="px-5 py-2 bg-blue-600 text-white rounded-lg">Simpan</button></div>
-                            </form>
-                        </div>
-                    )}
-                </div>
-            );
+        // --- 12. PELAPORAN ---
+        function LapMgr({ pel, tag, set }) {
+            const [per, setPer] = useState(curYMD().slice(0,7));
+            const htm = `<div class="tc"><h2>${set.appName}</h2><h3>Laporan Bulan ${per}</h3></div><br/><table><tr><th>Nama</th><th>Total</th><th>Dibayar</th><th>Sisa</th></tr>${tag.filter(t=>t.periode===per).map(t=>`<tr><td>${(pel.find(p=>p.id===t.idPelanggan)||{}).nama}</td><td class="tr">${formatRp(t.total)}</td><td class="tr">${formatRp(getTerbayar(t))}</td><td class="tr">${formatRp(getSisa(t))}</td></tr>`).join('')}</table>`;
+            return (<div className="space-y-4"><h2 className="text-2xl font-bold">Pelaporan</h2><div className="bg-white p-4 rounded-xl border flex gap-4"><input type="month" value={per} onChange={e=>setPer(e.target.value)} className="border p-2 rounded"/><button onClick={()=>printDoc(htm,false)} className="bg-green-600 text-white px-4 rounded">Cetak PDF</button></div><div className="bg-white p-4 rounded-xl border overflow-x-auto"><div dangerouslySetInnerHTML={{__html:htm}}/></div></div>);
         }
 
-        // KOMPONEN TAGIHAN
-        function TagihanManager({ pelanggan, tagihan, settings, showToast, isAdmin, currentUser }) {
-            const wFilter = useWilayahFilter(pelanggan, isAdmin, currentUser);
-            const [periode, setPeriode] = useState(getCurrentDateYMD().slice(0, 7));
-            const [isFastMode, setIsFastMode] = useState(false); const [fastInputs, setFastInputs] = useState({}); const [isSavingMassal, setIsSavingMassal] = useState(false);
-            const [search, setSearch] = useState(''); const [fStatus, setFStatus] = useState('Semua'); const [sortBy, setSortBy] = useState('noPelanggan');
-            const [modal, setModal] = useState(false); const [selP, setSelP] = useState(null); const [existT, setExistT] = useState(null);
-            const [mAwal, setMAwal] = useState(''); const [mAkhir, setMAkhir] = useState('');
-            const [payModal, setPayModal] = useState(false); const [payNominal, setPayNominal] = useState('');
-
-            const bBln = settings?.batasBulanKritis !== undefined ? settings.batasBulanKritis : 3;
-            const bNom = settings?.batasNominalKritis !== undefined ? settings.batasNominalKritis : 350000;
-            const kubik = Math.max(0, Number(mAkhir) - Number(mAwal));
-            const totalHitung = (kubik * settings.tarif) + settings.beban;
-            const isBocorModal = checkKebocoran(tagihan, selP?.id, kubik, periode);
-
-            const filteredPelanggan = pelanggan.filter(p => p.status === 'Aktif' || tagihan.some(t => t.idPelanggan === p.id && t.periode === periode))
-                .filter(p => wFilter.isMatchWilayah(p.wilayah))
-                .filter(p => {
-                    const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
-                    if(fStatus === 'Semua') return true;
-                    if(fStatus === 'KRITIS') return checkKritis(tagihan, p.id, bBln, bNom);
-                    const hutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
-                    if(fStatus === 'LUNAS') return hutang <= 0 && t;
-                    if(fStatus === 'BELUM') return hutang > 0 && (!t || t.status === 'Belum Terbayar');
-                    if(fStatus === 'NYICIL') return t && getTerbayar(t) > 0 && getSisa(t) > 0;
-                    return true;
-                }).filter(p => p.nama.toLowerCase().includes(search.toLowerCase()) || p.noPelanggan.toLowerCase().includes(search.toLowerCase()))
-                .sort((a, b) => {
-                    if (sortBy === 'noPelanggan') return a.noPelanggan.localeCompare(b.noPelanggan, undefined, {numeric: true});
-                    if (sortBy === 'wilayah') return (a.wilayah || '').localeCompare(b.wilayah || '');
-                    return (`${a.rt}/${a.rw}`).localeCompare(`${b.rt}/${b.rw}`, undefined, {numeric: true});
-                });
-
-            const getMAwPrev = (id) => {
-                const [y, m] = periode.split('-'); let prevM = parseInt(m)-1, prevY = parseInt(y);
-                if(prevM === 0) { prevM = 12; prevY -= 1; }
-                const tLalu = tagihan.find(x => x.idPelanggan === id && x.periode === `${prevY}-${prevM.toString().padStart(2, '0')}`);
-                return tLalu ? tLalu.meterAkhir : 0;
-            };
-
-            const openTagihan = (p) => {
-                const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
-                setSelP(p); setExistT(t);
-                if(t) { setMAwal(t.meterAwal); setMAkhir(t.meterAkhir); } else { setMAwal(getMAwPrev(p.id)); setMAkhir(''); }
-                setModal(true);
-            };
-
-            const simpanTagihan = async (e) => {
-                e.preventDefault();
-                const pl = { idPelanggan: selP.id, periode, meterAwal: Number(mAwal), meterAkhir: Number(mAkhir), total: totalHitung, terbayar: existT ? getTerbayar(existT) : 0, status: existT ? existT.status : 'Belum Terbayar' };
-                try { if(existT) await DB_PUSAT.collection('tagihan').doc(existT.id).update(pl); else await DB_PUSAT.collection('tagihan').add(pl); setModal(false); showToast('Tersimpan'); } catch(err) { alert(err.message); }
-            };
-
-            const simpanMassal = async () => {
-                setIsSavingMassal(true); let count = 0;
-                try {
-                    await Promise.all(filteredPelanggan.map(async (p) => {
-                        const val = fastInputs[p.id];
-                        if (val !== undefined && val !== '') {
-                            const mAk = Number(val), t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode), mAw = t ? t.meterAwal : getMAwPrev(p.id);
-                            const tHitung = (Math.max(0, mAk - mAw) * settings.tarif) + settings.beban;
-                            if (t) { if (t.meterAkhir !== mAk) { await DB_PUSAT.collection('tagihan').doc(t.id).update({ meterAkhir: mAk, total: tHitung, meterAwal: mAw }); count++; } }
-                            else { await DB_PUSAT.collection('tagihan').add({ idPelanggan: p.id, periode, meterAwal: mAw, meterAkhir: mAk, total: tHitung, terbayar: 0, status: 'Belum Terbayar' }); count++; }
-                        }
-                    }));
-                    if(count > 0) showToast(`${count} Data Tersimpan!`); setFastInputs({}); setIsFastMode(false);
-                } catch(err) { alert(err.message); }
-                setIsSavingMassal(false);
-            };
-
-            const hapusTagihan = async (id) => { 
-                if(!isAdmin) return alert("Hanya Admin yang bisa menghapus tagihan!");
-                if(window.confirm('Hapus tagihan?')) { await DB_PUSAT.collection('tagihan').doc(id).delete(); setModal(false); showToast('Tagihan Dihapus'); } 
-            };
-
-            const openPayModal = (p) => { setSelP(p); setPayNominal(''); setPayModal(true); };
-
-            const simpanPayGlobal = async (e) => {
-                e.preventDefault(); let uang = Number(payNominal); const asli = uang; 
-                if(uang < 0) return alert("Tidak valid!");
-                try {
-                    const curT = tagihan.find(t => t.idPelanggan === selP.id && t.periode === periode);
-                    const unpLain = tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0 && t.periode !== periode).sort((a,b)=>a.periode.localeCompare(b.periode));
-                    const totHut = (curT ? getSisa(curT) : 0) + unpLain.reduce((s,t)=>s+getSisa(t), 0);
-                    const kembalian = Math.max(0, asli - totHut);
-                    const tId = curT ? curT.id : (unpLain.length > 0 ? unpLain[unpLain.length-1].id : null);
-
-                    const bayarTagihan = async (t) => {
-                        const sisa = getSisa(t), bayar = Math.min(uang, sisa);
-                        await DB_PUSAT.collection('tagihan').doc(t.id).update({
-                            terbayar: getTerbayar(t) + bayar, status: (getTerbayar(t) + bayar) >= t.total ? 'Terbayar' : 'Belum Terbayar', petugasPenagih: currentUser.username,
-                            ...(t.id === tId && { uangDiserahkan: asli, kembalian })
-                        });
-                        uang -= bayar;
-                    };
-
-                    if (curT && uang > 0) {
-                        if (getSisa(curT) > 0) await bayarTagihan(curT);
-                        else if (curT.id === tId) await DB_PUSAT.collection('tagihan').doc(curT.id).update({ uangDiserahkan: asli, kembalian, petugasPenagih: currentUser.username });
-                    }
-                    if (uang > 0) for(let t of unpLain) { if(uang <= 0) break; await bayarTagihan(t); }
-                    setPayModal(false); setPayNominal(''); showToast('Pembayaran Dicatat!');
-                } catch(err) { alert(err.message); }
-            };
-
-            const doCetak = (p, t, isWA) => {
-                const tunggakanLalu = getTunggakanLalu(tagihan, p.id, t.periode);
-                const hutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
-                const isKritis = checkKritis(tagihan, p.id, bBln, bNom);
-                const warn = isKritis ? `\n⚠️ *PEMBERITAHUAN*: Tunggakan Bapak/Ibu mencapai batas maksimal. Dimohon segera melunasi/mencicil.` : '';
-                
-                if (isWA) {
-                    const msg = `Yth. Bapak/Ibu ${p.nama},\nTagihan air bersih ${settings.appName} periode ${formatBulanTahunLengkap(t.periode)}.\n\n*Rincian:*\n- Meter Awal : ${t.meterAwal}\n- Meter Akhir: ${t.meterAkhir}\n- Pemakaian  : ${t.meterAkhir - t.meterAwal} m3\n\n*Tagihan Bln Ini : ${formatRp(t.total)}*\n*Tunggakan Lalu  : ${formatRp(tunggakanLalu)}*\n*Total Tagihan   : ${formatRp(t.total + tunggakanLalu)}*\n\nStatus: ${hutang <= 0 ? 'LUNAS ✅' : 'BELUM LUNAS ❌'}\nSisa Tunggakan: ${formatRp(hutang)}${warn}\n\nTerima kasih.`;
-                    copyToClipboard(msg); showToast("Pesan WA Disalin!"); return;
-                }
-
-                const uangT = t.uangDiserahkan || getTerbayar(t), uangK = t.kembalian || 0, pet = t.petugasPenagih || currentUser.username;
-                const isMobile = window.innerWidth < 768;
-                
-                if (isMobile) {
-                    const txt = `${alignC(settings.appName.toUpperCase())}\n${settings.appSubtitle?alignC(settings.appSubtitle.toUpperCase())+'\n':''}${alignC('DESA MENONGO-SUKODADI-LAMONGAN')}\n--------------------------------\nNO: ${p.noPelanggan}\nNAMA: ${p.nama}\nPERIODE: ${formatBulanTahunSingkat(t.periode)}\n--------------------------------\n${alignLR('M.AWAL',t.meterAwal)}\n${alignLR('M.AKHIR',t.meterAkhir)}\n${alignLR('PAKAI',(t.meterAkhir-t.meterAwal)+' m3')}\n--------------------------------\n${alignLR('TAGIHAN',formatRp(t.total))}\n${alignLR('TUNGGAKAN',formatRp(tunggakanLalu))}\n${alignLR('TOTAL',formatRp(t.total+tunggakanLalu))}\n--------------------------------\n${alignLR('DIBAYAR',formatRp(uangT))}\n${uangK>0?alignLR('KEMBALI',formatRp(uangK))+'\n':''}${alignLR('SISA HTG',formatRp(hutang))}\n--------------------------------\n${alignC(hutang<=0?'*** LUNAS ***':'BELUM LUNAS')}\n${alignC(`PETUGAS: ${pet.toUpperCase()}`)}\n\n`;
-                    if (navigator.share) navigator.share({ title: 'Struk', text: txt }).catch(() => copyToClipboard(txt)); else copyToClipboard(txt);
-                    showToast("Teks struk disalin!");
-                } else {
-                    const h = `<div class="text-center"><div class="title">${settings.appName}</div>${settings.appSubtitle?`<div>${settings.appSubtitle}</div>`:''}<div>MENONGO-SUKODADI</div></div><hr/><table><tr><td>NO</td><td>: ${p.noPelanggan}</td></tr><tr><td>NAMA</td><td>: ${p.nama}</td></tr><tr><td>PERIODE</td><td>: ${formatBulanTahunSingkat(t.periode)}</td></tr></table><hr/><table><tr><td>M.AWAL</td><td class="text-right">${t.meterAwal}</td></tr><tr><td>M.AKHIR</td><td class="text-right">${t.meterAkhir}</td></tr><tr><td>PAKAI</td><td class="text-right">${t.meterAkhir-t.meterAwal} m3</td></tr></table><hr/><table><tr><td>TAGIHAN</td><td class="text-right">${formatRp(t.total)}</td></tr><tr><td>TUNGGAKAN</td><td class="text-right">${formatRp(tunggakanLalu)}</td></tr><tr class="bold"><td>TOTAL</td><td class="text-right">${formatRp(t.total+tunggakanLalu)}</td></tr></table><hr/><table><tr><td>DIBAYAR</td><td class="text-right">${formatRp(uangT)}</td></tr>${uangK>0?`<tr><td>KEMBALI</td><td class="text-right">${formatRp(uangK)}</td></tr>`:''}<tr class="bold" style="color:red"><td>SISA HUTANG</td><td class="text-right">${formatRp(hutang)}</td></tr></table><hr/><div class="text-center"><div class="bold" style="font-size:16px">${hutang<=0?'LUNAS':'BELUM LUNAS'}</div><div style="font-size:11px;margin-top:4px">PETUGAS: ${pet.toUpperCase()}</div></div>`;
-                    printContent(h, 'receipt');
-                }
-            };
-
-            return (
-                <div className="space-y-4">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Tagihan & Pembayaran</h2>
-                        <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
-                            <select value={wFilter.filterWilayah} onChange={e=>wFilter.setFilterWilayah(e.target.value)} className="border p-2 rounded-lg text-sm bg-white shadow-sm" disabled={wFilter.isPetugasLocked && wFilter.dropdownWilayahs.length <= 1}>
-                                {wFilter.dropdownWilayahs.map(w => <option key={w} value={w}>{w === 'Semua' ? 'Semua Wilayah' : w}</option>)}
-                            </select>
-                            <button onClick={() => setIsFastMode(!isFastMode)} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center ${isFastMode ? 'bg-gray-600 text-white' : 'bg-indigo-600 text-white'}`}><i className={`fas ${isFastMode ? 'fa-times' : 'fa-bolt'} mr-2`}></i>{isFastMode ? 'Tutup Keliling' : 'Mode Keliling'}</button>
-                            <select value={fStatus} onChange={e=>setFStatus(e.target.value)} className="border p-2 rounded-lg text-sm bg-white shadow-sm"><option value="Semua">Semua</option><option value="BELUM">Belum Lunas</option><option value="NYICIL">Nyicil</option><option value="LUNAS">Lunas</option><option value="KRITIS">⚠️ Kritis</option></select>
-                            <div className="flex items-center space-x-2 bg-white px-3 py-1.5 border rounded-lg"><input type="month" value={periode} onChange={e=>setPeriode(e.target.value)} className="outline-none text-sm font-bold bg-transparent"/></div>
-                            <div className="relative flex-1 md:w-40"><i className="fas fa-search absolute left-3 top-2.5 text-gray-400 text-sm"></i><input type="text" placeholder="Cari..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"/></div>
-                        </div>
-                    </div>
-
-                    {!isFastMode && isAdmin && (
-                        <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4">
-                            <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-blue-600 font-bold uppercase mb-1">Tagihan</p><p className="text-sm md:text-lg font-bold text-blue-900">{formatRp(tagihan.filter(t => t.periode === periode && filteredPelanggan.some(p => p.id === t.idPelanggan)).reduce((s, t) => s + t.total, 0))}</p></div>
-                            <div className="bg-green-50 border border-green-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-green-600 font-bold uppercase mb-1">Uang Masuk</p><p className="text-sm md:text-lg font-bold text-green-900">{formatRp(tagihan.filter(t => t.periode === periode && filteredPelanggan.some(p => p.id === t.idPelanggan)).reduce((s, t) => s + getTerbayar(t), 0))}</p></div>
-                            <div className="bg-red-50 border border-red-100 p-3 rounded-xl text-center shadow-sm"><p className="text-[10px] md:text-xs text-red-600 font-bold uppercase mb-1">Sisa</p><p className="text-sm md:text-lg font-bold text-red-900">{formatRp(tagihan.filter(t => t.periode === periode && filteredPelanggan.some(p => p.id === t.idPelanggan)).reduce((s, t) => s + getSisa(t), 0))}</p></div>
-                        </div>
-                    )}
-
-                    {isFastMode ? (
-                        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4">
-                            <div className="flex justify-between items-center mb-4">
-                                <div><h3 className="font-bold text-indigo-900"><i className="fas fa-running mr-2"></i> Mode Keliling</h3></div>
-                                <button onClick={simpanMassal} disabled={isSavingMassal} className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold"><i className="fas fa-save mr-2"></i> Simpan</button>
-                            </div>
-                            <div className="space-y-3">
-                                {filteredPelanggan.map(p => {
-                                    const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode), mAw = t ? t.meterAwal : getMAwPrev(p.id);
-                                    const val = fastInputs[p.id] !== undefined ? fastInputs[p.id] : (t ? t.meterAkhir : ''), isBocor = val !== '' ? checkKebocoran(tagihan, p.id, Math.max(0, Number(val) - mAw), periode) : false;
-                                    return (
-                                        <div key={p.id} className="bg-white p-3 rounded-xl shadow-sm border border-indigo-200 flex items-center justify-between gap-2">
-                                            <div className="w-[55%]"><div className="font-bold text-[15px] truncate">{p.nama}</div><div className="text-[10px] text-gray-500 mb-1">{p.noPelanggan} • {p.wilayah||''}</div><div className="text-xs font-bold text-indigo-800 bg-indigo-50 px-2 py-1 rounded">Awal: {mAw}</div></div>
-                                            <div className="w-[45%]"><input type="number" min={mAw} value={val} onChange={e => setFastInputs({...fastInputs, [p.id]: e.target.value})} className="border-2 border-indigo-300 p-2 w-full rounded-lg text-center font-black text-lg" placeholder="Akhir" />{isBocor && <div className="text-[10px] text-red-600 font-bold mt-1 text-center">⚠️ Bocor</div>}</div>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="md:hidden space-y-4">
-                            {filteredPelanggan.map(p => {
-                                const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode), hutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0), isKritis = checkKritis(tagihan, p.id, bBln, bNom);
-                                if(!t) return (<div key={p.id} className="bg-white p-4 rounded-xl shadow-sm border"><div className="font-bold">{p.nama}</div><button onClick={()=>openTagihan(p)} className="w-full mt-2 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-bold">Input Tagihan</button></div>);
-                                return (
-                                    <div key={p.id} className={`bg-white p-4 rounded-xl shadow-sm border ${isKritis ? 'border-red-300 bg-red-50/20' : ''}`}>
-                                        <div className="flex justify-between items-start mb-3 border-b pb-2">
-                                            <div><div className="font-bold text-lg">{p.nama}</div>{isKritis && <div className="text-[10px] text-white bg-red-600 px-2 py-1 rounded-full animate-pulse">STATUS KRITIS</div>}</div>
-                                            <div className="text-right"><div className="text-[10px] text-gray-500 uppercase">Hutang</div><div className={`text-xl font-black ${hutang>0?'text-red-600':'text-green-600'}`}>{hutang<=0?'LUNAS':formatRp(hutang)}</div></div>
-                                        </div>
-                                        <div className="grid grid-cols-4 gap-2">
-                                            <button onClick={()=>openPayModal(p)} className="col-span-2 py-3 bg-yellow-400 text-yellow-900 rounded-xl font-black text-sm"><i className="fas fa-hand-holding-usd mr-2"></i> BAYAR</button>
-                                            <button onClick={()=>doCetak(p,t,false)} className="py-3 bg-gray-100 rounded-xl"><i className="fas fa-print"></i></button>
-                                            <button onClick={()=>doCetak(p,t,true)} className="py-3 bg-green-100 text-green-700 rounded-xl"><i className="fab fa-whatsapp"></i></button>
-                                            <button onClick={()=>openTagihan(p)} className="col-span-4 py-2 mt-1 border text-blue-600 rounded-xl text-sm font-bold"><i className="fas fa-edit mr-2"></i> Edit Meteran</button>
-                                        </div>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    )}
-                    
-                    <div className="hidden md:block bg-white rounded-xl shadow-sm border overflow-x-auto">
-                         <table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b"><tr><th className="p-4">Pelanggan</th><th className="p-4">Tagihan Bln Ini</th><th className="p-4">Sisa Bln Ini</th><th className="p-4 text-red-700">TOTAL TUNGGAKAN</th><th className="p-4 text-center">Aksi</th></tr></thead><tbody className="divide-y">
-                                {filteredPelanggan.map(p => {
-                                    const t = tagihan.find(x => x.idPelanggan === p.id && x.periode === periode);
-                                    if(!t) return <tr key={p.id}><td className="p-4 font-bold">{p.nama}</td><td colSpan="4"><button onClick={()=>openTagihan(p)} className="bg-blue-600 text-white px-3 py-1 rounded text-xs">Input Tagihan</button></td></tr>;
-                                    const hutang = tagihan.filter(x => x.idPelanggan === p.id).reduce((s, x) => s + getSisa(x), 0);
-                                    return (
-                                        <tr key={p.id}>
-                                            <td className="p-4 font-bold">{p.nama}</td><td className="p-4">{formatRp(t.total)}</td><td className="p-4">{formatRp(getSisa(t))}</td>
-                                            <td className="p-4 font-bold text-red-600">{hutang<=0?'LUNAS':formatRp(hutang)} {checkKritis(tagihan, p.id, bBln, bNom) && <span className="animate-pulse">⚠️ KRITIS</span>}</td>
-                                            <td className="p-4 text-center space-x-2"><button onClick={()=>doCetak(p,t,false)} className="p-2 border rounded"><i className="fas fa-print"></i></button><button onClick={()=>doCetak(p,t,true)} className="p-2 border rounded text-green-600"><i className="fab fa-whatsapp"></i></button><button onClick={()=>openPayModal(p)} className="p-2 border rounded text-yellow-600"><i className="fas fa-hand-holding-usd"></i></button><button onClick={()=>openTagihan(p)} className="p-2 border rounded text-blue-600"><i className="fas fa-edit"></i></button></td>
-                                        </tr>
-                                    )
-                                })}
-                        </tbody></table>
-                    </div>
-
-                    {modal && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={simpanTagihan} className="bg-white p-6 rounded-xl w-full max-w-sm">
-                                <h3 className="font-bold text-lg mb-4">Tagihan: {selP.nama}</h3>
-                                <div className="flex gap-3 mb-4"><div className="w-1/2"><label className="text-xs mb-1">M.Awal</label><input type="number" min="0" value={mAwal} onChange={e=>setMAwal(e.target.value)} className="border p-2 w-full rounded" required/></div><div className="w-1/2"><label className="text-xs mb-1">M.Akhir</label><input type="number" min={mAwal} value={mAkhir} onChange={e=>setMAkhir(e.target.value)} className="border p-2 w-full rounded" required/></div></div>
-                                <div className="flex justify-between font-bold text-lg mb-6"><span>Total:</span><span>{formatRp(totalHitung)}</span></div>
-                                <div className="flex justify-end gap-3">{existT && isAdmin && <button type="button" onClick={()=>hapusTagihan(existT.id)} className="mr-auto text-red-600"><i className="fas fa-trash"></i></button>}<button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg">Batal</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg">Simpan</button></div>
-                            </form>
-                        </div>
-                    )}
-                    {payModal && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={simpanPayGlobal} className="bg-white p-6 rounded-xl w-full max-w-sm">
-                                <h3 className="font-bold text-lg mb-4">Terima Uang: {selP.nama}</h3>
-                                {(() => {
-                                    const cT = tagihan.find(t => t.idPelanggan === selP.id && t.periode === periode);
-                                    const totHut = (cT ? getSisa(cT) : 0) + tagihan.filter(t => t.idPelanggan === selP.id && getSisa(t) > 0 && t.periode !== periode).reduce((s,t)=>s+getSisa(t), 0);
-                                    const kemb = Number(payNominal) > totHut ? Number(payNominal) - totHut : 0;
-                                    return (
-                                        <>
-                                            <div className="flex justify-between font-bold text-lg mb-4"><span>Hutang Total:</span><span>{formatRp(totHut)}</span></div>
-                                            <input type="number" min="0" value={payNominal} onChange={e=>setPayNominal(e.target.value)} className="border p-3 w-full rounded-lg text-center font-bold text-xl mb-4" placeholder="Uang Warga" required />
-                                            {kemb > 0 && <div className="bg-green-50 text-green-800 p-3 rounded-lg text-center font-bold mb-4 animate-pulse">KEMBALIAN: {formatRp(kemb)}</div>}
-                                        </>
-                                    );
-                                })()}
-                                <div className="flex justify-end gap-3"><button type="button" onClick={()=>setPayModal(false)} className="px-4 py-2 border rounded-lg">Batal</button><button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg">Bayar</button></div>
-                            </form>
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
-        // KOMPONEN LAINNYA 
-        const GenericTable = ({ title, btnL, cols, data, rowRender, onAdd }) => (
-            <div className="space-y-4">
-                <div className="flex justify-between items-center border-b pb-4"><h2 className="text-2xl font-bold">{title}</h2><button onClick={onAdd} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{btnL}</button></div>
-                <div className="bg-white rounded-xl border overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b"><tr>{cols.map(c=><th key={c} className="p-4">{c}</th>)}</tr></thead><tbody className="divide-y">{data.map(rowRender)}</tbody></table></div>
-            </div>
-        );
-
-        function PengeluaranManager({ data, showToast }) {
-            const [modal, setModal] = useState(false); const [form, setForm] = useState({ tanggal: getCurrentDateYMD(), keterangan: '', nominal: '' });
-            const simpan = async (e) => { e.preventDefault(); try { await DB_PUSAT.collection('pengeluaran').add({ ...form, nominal: Number(form.nominal) }); setModal(false); showToast('Tersimpan'); } catch(err) { alert(err.message); } };
-            const hapus = async (id) => { if(window.confirm('Hapus?')) { await DB_PUSAT.collection('pengeluaran').doc(id).delete(); showToast('Dihapus'); } };
-            return (
-                <>
-                    <GenericTable title="Buku Kas (Pengeluaran)" btnL="Tambah" cols={['Tanggal','Keterangan','Nominal','Aksi']} data={[...data].sort((a,b)=>new Date(b.tanggal)-new Date(a.tanggal))} onAdd={()=>setModal(true)} rowRender={k=>(<tr key={k.id}><td className="p-4">{k.tanggal}</td><td className="p-4">{k.keterangan}</td><td className="p-4 font-bold text-red-600">{formatRp(k.nominal)}</td><td className="p-4"><button onClick={()=>hapus(k.id)} className="text-red-500"><i className="fas fa-trash"></i></button></td></tr>)}/>
-                    {modal && <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"><form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-md"><h3 className="font-bold text-xl mb-4">Catat Pengeluaran</h3><div className="space-y-4 mb-6"><div><label className="text-xs">Tanggal</label><input type="date" value={form.tanggal} onChange={e=>setForm({...form, tanggal:e.target.value})} className="border p-2 w-full rounded" required/></div><div><label className="text-xs">Keterangan</label><input value={form.keterangan} onChange={e=>setForm({...form, keterangan:e.target.value})} className="border p-2 w-full rounded" required/></div><div><label className="text-xs">Nominal</label><input type="number" value={form.nominal} onChange={e=>setForm({...form, nominal:e.target.value})} className="border p-2 w-full rounded" required/></div></div><div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg">Batal</button><button type="submit" className="px-4 py-2 bg-red-600 text-white rounded-lg">Simpan</button></div></form></div>}
-                </>
-            );
-        }
-
-        function KeluhanManager({ data, pelanggan, showToast, isAdmin, currentUser }) {
-            const wFilter = useWilayahFilter(pelanggan, isAdmin, currentUser);
-            const [modal, setModal] = useState(false); const [editId, setEditId] = useState(null);
-            const [form, setForm] = useState({ tanggal: getCurrentDateYMD(), idPelanggan: '', keluhan: '', status: 'Menunggu', keterangan: '' });
-            const filteredData = data.filter(k => wFilter.isMatchWilayah((pelanggan.find(p=>p.id===k.idPelanggan)||{}).wilayah)).sort((a,b) => new Date(b.tanggal) - new Date(a.tanggal));
-            const simpan = async (e) => { e.preventDefault(); if(!form.idPelanggan) return; try { if(editId) await DB_PUSAT.collection('keluhan').doc(editId).update(form); else await DB_PUSAT.collection('keluhan').add(form); setModal(false); showToast('Tersimpan'); } catch(err){alert(err.message);} };
-            const hapus = async (id) => { if(isAdmin && window.confirm('Hapus?')) { await DB_PUSAT.collection('keluhan').doc(id).delete(); showToast('Dihapus'); } };
-            return (
-                <>
-                    <GenericTable title="Keluhan & Perbaikan" btnL="Tambah Keluhan" cols={['Tanggal','Pelapor','Isi Keluhan','Status','Aksi']} data={filteredData} onAdd={()=>{setEditId(null); setModal(true);}} rowRender={k=>{const p=pelanggan.find(x=>x.id===k.idPelanggan); return (<tr key={k.id}><td className="p-4">{k.tanggal}</td><td className="p-4 font-bold">{p?p.nama:'-'}</td><td className="p-4 text-red-600">{k.keluhan}</td><td className="p-4">{k.status}</td><td className="p-4 space-x-2"><button onClick={()=>{setEditId(k.id); setForm(k); setModal(true);}} className="text-blue-500"><i className="fas fa-edit"></i></button>{isAdmin && <button onClick={()=>hapus(k.id)} className="text-red-500"><i className="fas fa-trash"></i></button>}</td></tr>)}}/>
-                    {modal && <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"><form onSubmit={simpan} className="bg-white p-6 rounded-xl w-full max-w-md"><h3 className="font-bold text-xl mb-4">Laporan Keluhan</h3><div className="space-y-4 mb-6"><div><label className="text-xs">Pilih Warga</label><select value={form.idPelanggan} onChange={e=>setForm({...form, idPelanggan:e.target.value})} className="border p-2 w-full rounded" required><option value="">Pilih...</option>{pelanggan.filter(p=>wFilter.isMatchWilayah(p.wilayah)).map(p=><option key={p.id} value={p.id}>{p.nama}</option>)}</select></div><div><label className="text-xs">Keluhan</label><textarea value={form.keluhan} onChange={e=>setForm({...form, keluhan:e.target.value})} className="border p-2 w-full rounded" required/></div><div><label className="text-xs">Status</label><select value={form.status} onChange={e=>setForm({...form, status:e.target.value})} className="border p-2 w-full rounded"><option>Menunggu</option><option>Proses</option><option>Selesai</option></select></div></div><div className="flex justify-end gap-3"><button type="button" onClick={()=>setModal(false)} className="px-4 py-2 border rounded-lg">Batal</button><button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded-lg">Simpan</button></div></form></div>}
-                </>
-            );
-        }
-
-        function PengaturanManager({ settings, adminUsers, showToast }) {
-            const defPerms = { 'Admin': ['dashboard','pelanggan','tagihan','keluhan','pengeluaran','pelaporan','pengaturan'], 'Petugas': ['pelanggan','tagihan','keluhan'], 'Ketua HIPAB': ['dashboard','pelaporan'] };
-            const [fs, setFs] = useState(settings); const [users, setUsers] = useState([]); const [perms, setPerms] = useState(defPerms); const [loaded, setLoaded] = useState(false);
-            useEffect(() => { if (adminUsers?.length > 0 && !loaded) { setUsers(adminUsers); setLoaded(true); } }, [adminUsers, loaded]);
-            useEffect(() => { if (settings) { setFs(settings); setPerms(settings.rolePermissions || defPerms); } }, [settings]);
-            
-            const handleTgl = (r, m) => { if(r==='Admin'&&m==='pengaturan')return; setPerms(p => ({...p, [r]: (p[r]||[]).includes(m) ? p[r].filter(x=>x!==m) : [...(p[r]||[]), m]})); };
-            const simpanSemua = async (e) => { e.preventDefault(); if(users.some(u => !u.username.trim() || !u.password.trim())) return alert("Username/Password tidak boleh kosong!"); try { await DB_PUSAT.collection('pengaturan').doc('konfigurasi').set({...fs, tarif:Number(fs.tarif), beban:Number(fs.beban), batasBulanKritis:Number(fs.batasBulanKritis), batasNominalKritis:Number(fs.batasNominalKritis), rolePermissions: perms}); await DB_PUSAT.collection('pengaturan').doc('users').set({ list: users }); showToast("Disimpan!"); } catch(err) { alert(err.message); } };
-            
-            const Inp = ({ l, v, f, type="text" }) => (<div><label className="block text-sm font-medium text-gray-700 mb-1">{l}</label><input type={type} value={v||''} onChange={e=>setFs({...fs, [f]:e.target.value})} className="border p-2 w-full rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required/></div>);
-            
-            return (
-                <div className="space-y-6 max-w-4xl">
-                    <h2 className="text-2xl font-bold text-gray-800">Pengaturan</h2>
-                    <form onSubmit={simpanSemua} className="bg-white p-6 rounded-xl border">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                            <Inp l="Nama Aplikasi" v={fs.appName} f="appName"/> <Inp l="Keterangan" v={fs.appSubtitle} f="appSubtitle"/>
-                            <Inp l="Tarif (Rp)" v={fs.tarif} f="tarif" type="number"/> <Inp l="Beban (Rp)" v={fs.beban} f="beban" type="number"/>
-                            <Inp l="Batas Bulan Kritis" v={fs.batasBulanKritis} f="batasBulanKritis" type="number"/> <Inp l="Batas Nominal Kritis" v={fs.batasNominalKritis} f="batasNominalKritis" type="number"/>
-                        </div>
-                    </form>
-                    <div className="bg-white p-6 rounded-xl border overflow-x-auto">
-                        <h3 className="font-bold mb-4">Hak Akses</h3>
-                        <table className="w-full text-sm text-center border">
-                            <thead className="bg-gray-50 border-b"><tr><th>Role</th>{['dashboard','pelanggan','tagihan','keluhan','pengeluaran','pelaporan','pengaturan'].map(m=><th key={m} className="p-2">{m}</th>)}</tr></thead>
-                            <tbody>{['Admin','Petugas','Ketua HIPAB'].map(r => (<tr key={r} className="border-b"><td className="p-2 font-bold">{r}</td>{['dashboard','pelanggan','tagihan','keluhan','pengeluaran','pelaporan','pengaturan'].map(m=><td key={m}><input type="checkbox" checked={(perms[r]||[]).includes(m)} onChange={()=>handleTgl(r,m)} disabled={r==='Admin'&&m==='pengaturan'}/></td>)}</tr>))}</tbody>
-                        </table>
-                    </div>
-                    <div className="bg-white p-6 rounded-xl border">
-                        <div className="flex justify-between mb-4"><h3 className="font-bold">Akun Login</h3><button onClick={()=>setUsers([...users, {id:Date.now().toString(), username:'', password:'', role:'Petugas'}])} className="bg-gray-100 px-3 py-1 rounded">Tambah User</button></div>
-                        <div className="space-y-2 mb-4">{users.map((u, i) => (<div key={u.id} className="flex gap-2"><input value={u.username} onChange={e=>setUsers(users.map(x=>x.id===u.id?{...x, username:e.target.value}:x))} className="border p-2 rounded w-1/4"/><input value={u.password} onChange={e=>setUsers(users.map(x=>x.id===u.id?{...x, password:e.target.value}:x))} className="border p-2 rounded w-1/4"/><select value={u.role} onChange={e=>setUsers(users.map(x=>x.id===u.id?{...x, role:e.target.value}:x))} className="border p-2 rounded w-1/4"><option>Admin</option><option>Petugas</option><option>Ketua HIPAB</option></select><input value={u.wilayah||''} onChange={e=>setUsers(users.map(x=>x.id===u.id?{...x, wilayah:e.target.value}:x))} placeholder="Wilayah" className="border p-2 rounded flex-1"/><button onClick={()=>setUsers(users.filter(x=>x.id!==u.id))} className="text-red-500 p-2"><i className="fas fa-trash"></i></button></div>))}</div>
-                        <button onClick={simpanSemua} disabled={!loaded} className="bg-blue-600 text-white px-6 py-2 rounded-lg w-full font-bold">{loaded ? 'Simpan Seluruh Pengaturan' : 'Memuat...'}</button>
-                    </div>
-                </div>
-            );
-        }
-
-        function Pelaporan({ pelanggan, tagihan, pengeluaran, settings }) {
-            const [reportType, setReportType] = useState('bulanan');
-            const [filterPeriode, setFilterPeriode] = useState(getCurrentDateYMD().slice(0, 7));
-            const [filterWilayah, setFilterWilayah] = useState('Semua');
-
-            const filPel = pelanggan.filter(p => filterWilayah === 'Semua' || p.wilayah === filterWilayah);
-            const pelIds = new Set(filPel.map(p => p.id));
-            const getName = id => pelanggan.find(p => p.id === id)?.nama || '-';
-
-            const dwnCsv = () => {
-                const c = "Nama;Periode;Tagihan;Dibayar;Sisa;Petugas\n" + tagihan.filter(t=>pelIds.has(t.idPelanggan)).map(t=>`"${getName(t.idPelanggan)}";"${t.periode}";${t.total};${getTerbayar(t)};${getSisa(t)};"${t.petugasPenagih||''}"`).join('\n');
-                const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(["\ufeff", c])); a.download = "Backup.csv"; a.click();
-            };
-
-            const thH = (title) => `<div class="header"><h2>${settings.appName}</h2>${settings.appSubtitle?`<h4>${settings.appSubtitle}</h4>`:''}<h3>${title} ${filterWilayah!=='Semua'?`(${filterWilayah})`:''}</h3></div>`;
-            const tbl = (h, r, e) => `<table><thead><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${r.length?r.join(''):`<tr><td colspan="99" class="text-center">${e}</td></tr>`}</tbody></table>`;
-
-            let htm = "";
-            if (reportType === 'bulanan') {
-                const tg = tagihan.filter(t => t.periode === filterPeriode && pelIds.has(t.idPelanggan));
-                htm = thH('Laporan Bulanan') + `<p>Pemasukan: <b>${formatRp(tg.reduce((s,t)=>s+getTerbayar(t),0))}</b></p>` + tbl(['Nama','Tagihan','Dibayar','Sisa','Petugas'], tg.map(t=>`<tr><td>${getName(t.idPelanggan)}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right">${formatRp(getSisa(t))}</td><td class="text-center">${t.petugasPenagih||'-'}</td></tr>`), 'Kosong');
-            } else {
-                const ut = tagihan.filter(t => getSisa(t) > 0 && pelIds.has(t.idPelanggan));
-                htm = thH('Laporan Tunggakan') + tbl(['Nama','Periode','Tagihan','Dibayar','Tunggakan'], ut.map(t=>`<tr><td>${getName(t.idPelanggan)}</td><td>${t.periode}</td><td class="text-right">${formatRp(t.total)}</td><td class="text-right">${formatRp(getTerbayar(t))}</td><td class="text-right text-red-600 font-bold">${formatRp(getSisa(t))}</td></tr>`), 'Tidak ada tunggakan');
-            }
-
-            return (
-                <div className="space-y-4">
-                    <div className="bg-white p-5 rounded-xl border flex flex-wrap gap-4 items-end">
-                        <select value={filterWilayah} onChange={e=>setFilterWilayah(e.target.value)} className="border p-2 rounded"><option value="Semua">Semua Wilayah</option>{[...new Set(pelanggan.map(p=>p.wilayah).filter(Boolean))].map(w=><option key={w}>{w}</option>)}</select>
-                        <select value={reportType} onChange={e=>setReportType(e.target.value)} className="border p-2 rounded"><option value="bulanan">Bulanan</option><option value="tunggakan">Tunggakan</option></select>
-                        {reportType==='bulanan' && <input type="month" value={filterPeriode} onChange={e=>setFilterPeriode(e.target.value)} className="border p-2 rounded"/>}
-                        <div className="flex gap-2 ml-auto"><button onClick={dwnCsv} className="bg-indigo-600 text-white px-4 py-2 rounded">Backup Excel</button><button onClick={()=>printContent(htm, 'a4')} className="bg-green-600 text-white px-4 py-2 rounded">Cetak PDF</button></div>
-                    </div>
-                    <div className="bg-white p-8 rounded-xl border overflow-x-auto"><div dangerouslySetInnerHTML={{ __html: htm }} /></div>
-                </div>
-            );
-        }
-
+        // --- 13. APP UTAMA ---
         function App() {
-            const [fUser, setFUser] = useState(null);
-            const [cUser, setCUser] = useState(() => { const s = localStorage.getItem('hipab_user'); return s ? JSON.parse(s) : null; });
-            const [tab, setTab] = useState('dashboard'); const [mob, setMob] = useState(false); const [toast, setToast] = useState(null);
-            
-            const [pel, setPel] = useState([]); const [tag, setTag] = useState([]); const [peng, setPeng] = useState([]); const [kel, setKel] = useState([]); const [adm, setAdm] = useState([]);
-            const defPerm = { 'Admin': ['dashboard','pelanggan','tagihan','keluhan','pengeluaran','pelaporan','pengaturan'], 'Petugas': ['pelanggan','tagihan','keluhan'], 'Ketua HIPAB': ['dashboard','pelaporan'] };
-            const [set, setSet] = useState({ appName: 'BUMDES SRIKOYO', appSubtitle: 'UNIT HIPAB', tarif: 1500, beban: 2000, batasBulanKritis: 3, batasNominalKritis: 350000, rolePermissions: defPerm });
+            const [fU, setFU] = useState(null); const [cU, setCU] = useState(()=>JSON.parse(localStorage.getItem('hipab_u')));
+            const [tab, setTab] = useState('dash'); const [mob, setMob] = useState(false); const [tst, setTst] = useState(null);
+            const [dPel, setDPel] = useState([]); const [dTag, setDTag] = useState([]); const [dPng, setDPng] = useState([]); const [dKel, setDKel] = useState([]); const [dAdm, setDAdm] = useState([]);
+            const dPerm = { 'Admin': ['dash','pel','tag','kel','peng','lap','set'], 'Petugas': ['pel','tag','kel'], 'Ketua HIPAB': ['dash','lap'] };
+            const [set, setSet] = useState({ appName: 'HIPAB SRIKOYO', appSubtitle: 'Desa Menongo', tarif: 1500, beban: 2000, batasBulanKritis: 3, batasNominalKritis: 350000, rolePermissions: dPerm });
 
-            useEffect(() => { auth.signInAnonymously().catch(console.error); const un = auth.onAuthStateChanged(setFUser); return un; }, []);
+            useEffect(() => { auth.signInAnonymously().catch(console.error); return auth.onAuthStateChanged(setFU); }, []);
             useEffect(() => {
-                if (!fUser) return;
-                const uns = [
+                if(!fU) return;
+                const un = [
                     DB_PUSAT.collection('pengaturan').doc('konfigurasi').onSnapshot(d => d.exists ? setSet(d.data()) : DB_PUSAT.collection('pengaturan').doc('konfigurasi').set(set)),
-                    DB_PUSAT.collection('pengaturan').doc('users').onSnapshot(d => d.exists ? setAdm(d.data().list || []) : DB_PUSAT.collection('pengaturan').doc('users').set({ list: [{ id: '1', username: 'admin', password: '123', role: 'Admin', wilayah: '' }] })),
+                    DB_PUSAT.collection('pengaturan').doc('users').onSnapshot(d => d.exists ? setDAdm(d.data().list || []) : DB_PUSAT.collection('pengaturan').doc('users').set({list:[{id:'1',username:'admin',password:'123',role:'Admin'}]}))
                 ];
-                if (!cUser) return () => uns.forEach(u=>u());
-                uns.push(
-                    DB_PUSAT.collection('pelanggan').onSnapshot(s => setPel(s.docs.map(d => ({ id: d.id, ...d.data() })))),
-                    DB_PUSAT.collection('tagihan').onSnapshot(s => setTag(s.docs.map(d => ({ id: d.id, ...d.data() })))),
-                    DB_PUSAT.collection('pengeluaran').onSnapshot(s => setPeng(s.docs.map(d => ({ id: d.id, ...d.data() })))),
-                    DB_PUSAT.collection('keluhan').onSnapshot(s => setKel(s.docs.map(d => ({ id: d.id, ...d.data() }))))
+                if(cU) un.push(
+                    DB_PUSAT.collection('pelanggan').onSnapshot(s => setDPel(s.docs.map(d => ({id:d.id, ...d.data()})))),
+                    DB_PUSAT.collection('tagihan').onSnapshot(s => setDTag(s.docs.map(d => ({id:d.id, ...d.data()})))),
+                    DB_PUSAT.collection('pengeluaran').onSnapshot(s => setDPng(s.docs.map(d => ({id:d.id, ...d.data()})))),
+                    DB_PUSAT.collection('keluhan').onSnapshot(s => setDKel(s.docs.map(d => ({id:d.id, ...d.data()}))))
                 );
-                return () => uns.forEach(u=>u());
-            }, [cUser, fUser]);
+                return () => un.forEach(f=>f());
+            }, [cU, fU]);
 
-            const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 3000); };
-            const handleLogout = () => { localStorage.removeItem('hipab_user'); setCUser(null); setTab('dashboard'); };
+            const showToast = (m) => { setTst(m); setTimeout(()=>setTst(null), 3000); };
+            const logOut = () => { localStorage.removeItem('hipab_u'); setCU(null); setTab('dash'); };
 
-            if (!fUser) return <div className="flex h-[100dvh] items-center justify-center bg-blue-900 text-white"><i className="fas fa-spin fa-circle-notch text-5xl"></i></div>;
-            if (!cUser) return <LoginScreen users={adm} settings={set} onLogin={(u) => { localStorage.setItem('hipab_user', JSON.stringify(u)); setCUser(u); setTab((set.rolePermissions||defPerm)[u.role]?.[0] || 'dashboard'); }} showToast={showToast} />;
+            if(!fU) return <div className="flex h-screen items-center justify-center bg-blue-900 text-white"><Icon name="spinner fa-spin text-5xl"/></div>;
+            if(!cU) return <Login users={dAdm} set={set} onLogin={(u)=>{localStorage.setItem('hipab_u',JSON.stringify(u));setCU(u);setTab((set.rolePermissions||dPerm)[u.role]?.[0]||'dash');}} showToast={showToast}/>;
 
-            const isAdmin = cUser.role === 'Admin';
-            const hasAcc = (mId) => (set.rolePermissions || defPerm)[cUser.role || 'Petugas']?.includes(mId);
-
-            const MENU = [
-                { id: 'dashboard', label: 'Dashboard', icon: 'fa-home', ao: false }, { id: 'pelanggan', label: 'Pelanggan', icon: 'fa-users', ao: false },
-                { id: 'tagihan', label: 'Tagihan', icon: 'fa-file-invoice-dollar', ao: false }, { id: 'keluhan', label: 'Keluhan', icon: 'fa-tools', ao: false },
-                { id: 'pengeluaran', label: 'Buku Kas', icon: 'fa-book', ao: true }, { id: 'pelaporan', label: 'Pelaporan', icon: 'fa-chart-pie', ao: true },
-                { id: 'pengaturan', label: 'Pengaturan', icon: 'fa-cog', ao: true }
-            ];
-
-            const SidebarCont = () => (
-                <>
-                    <div className="flex flex-col items-center py-6 border-b border-blue-800">
-                        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-3 p-2 text-blue-600"><LogoRenderer logo={set.logo} clName="text-3xl" /></div>
-                        <h1 className="text-lg font-bold text-center leading-tight">{set.appName}</h1><p className="text-sm text-blue-200">{set.appSubtitle}</p>
-                        <span className="mt-2 bg-blue-800 px-3 py-1 rounded-full text-xs">Login: {cUser.username}</span>
-                    </div>
-                    <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
-                        {MENU.map(m => (!m.ao || isAdmin) && hasAcc(m.id) && <NavItem key={m.id} icon={m.icon} label={m.label} active={tab===m.id} onClick={()=>{setTab(m.id); setMob(false);}} />)}
-                    </nav>
-                    <div className="p-4"><button onClick={handleLogout} className="w-full py-2 bg-red-600 text-white rounded"><i className="fas fa-sign-out-alt mr-2"></i> Keluar</button></div>
-                </>
-            );
+            const isAdm = cU.role==='Admin', hA = (id) => (set.rolePermissions||dPerm)[cU.role||'Petugas']?.includes(id);
+            const MN = [{i:'dash',l:'Dashboard',ic:'home'},{i:'pel',l:'Pelanggan',ic:'users'},{i:'tag',l:'Tagihan',ic:'file-invoice-dollar'},{i:'kel',l:'Keluhan',ic:'tools'},{i:'peng',l:'Buku Kas',ic:'book'},{i:'lap',l:'Pelaporan',ic:'chart-pie'},{i:'set',l:'Pengaturan',ic:'cog'}];
+            
+            const Side = () => (<><div className="p-6 border-b border-blue-800 text-center"><div className="font-black text-xl">{set.appName}</div><div className="text-xs text-blue-300 mt-2">Login: {cU.username}</div></div><div className="flex-1 p-4 space-y-2 overflow-y-auto">{MN.map(m=>hA(m.i)&&<NavBtn key={m.i} ic={m.ic} lb={m.l} act={tab===m.i} onClick={()=>{setTab(m.i);setMob(false);}}/>)}</div><div className="p-4"><button onClick={logOut} className="w-full bg-red-600 text-white p-2 rounded font-bold">Logout</button></div></>);
 
             return (
-                <div className="flex h-[100dvh] overflow-hidden bg-gray-50">
-                    {toast && <div className="fixed top-4 right-4 z-[100] bg-green-600 text-white px-5 py-3 rounded-lg shadow-lg flex items-center animate-bounce"><i className="fas fa-check-circle mr-2"></i> {toast}</div>}
-                    <aside className="hidden md:flex flex-col w-64 bg-blue-900 text-white h-full shadow-xl z-20"><SidebarCont /></aside>
+                <div className="flex h-screen bg-gray-100">
+                    {tst && <div className="fixed top-4 right-4 z-50 bg-green-600 text-white p-3 rounded-lg shadow-lg font-bold animate-bounce">{tst}</div>}
+                    <aside className="hidden md:flex flex-col w-64 bg-blue-900 text-white"><Side/></aside>
                     <div className="flex-1 flex flex-col h-full overflow-hidden">
-                        <header className="md:hidden flex items-center justify-between bg-blue-900 text-white p-4"><button onClick={()=>setMob(true)}><i className="fas fa-bars text-xl"></i></button><div className="font-bold">{set.appName}</div><div className="w-6"></div></header>
-                        {mob && <div className="md:hidden fixed inset-0 z-50 flex"><div className="bg-blue-900 w-64 flex flex-col text-white"><div className="p-4 flex justify-end"><button onClick={()=>setMob(false)}><i className="fas fa-times text-xl"></i></button></div><SidebarCont /></div><div className="flex-1 bg-black/50" onClick={()=>setMob(false)}></div></div>}
-                        <main className="flex-1 overflow-y-auto p-4 md:p-8">
-                            {tab === 'dashboard' && hasAcc('dashboard') && <Dashboard pelanggan={pel} tagihan={tag} pengeluaran={peng} keluhan={kel} isAdmin={isAdmin} currentUser={cUser} settings={set} />}
-                            {tab === 'pelanggan' && hasAcc('pelanggan') && <PelangganManager data={pel} showToast={showToast} isAdmin={isAdmin} currentUser={cUser} />}
-                            {tab === 'tagihan' && hasAcc('tagihan') && <TagihanManager pelanggan={pel} tagihan={tag} settings={set} showToast={showToast} isAdmin={isAdmin} currentUser={cUser} />}
-                            {tab === 'keluhan' && hasAcc('keluhan') && <KeluhanManager data={kel} pelanggan={pel} showToast={showToast} isAdmin={isAdmin} currentUser={cUser} />}
-                            {tab === 'pengeluaran' && hasAcc('pengeluaran') && <PengeluaranManager data={peng} showToast={showToast} />}
-                            {tab === 'pelaporan' && hasAcc('pelaporan') && <Pelaporan pelanggan={pel} tagihan={tag} pengeluaran={peng} settings={set} />}
-                            {tab === 'pengaturan' && hasAcc('pengaturan') && <PengaturanManager settings={set} adminUsers={adm} showToast={showToast} />}
+                        <header className="md:hidden flex justify-between bg-blue-900 text-white p-4"><button onClick={()=>setMob(true)}><Icon name="bars text-xl"/></button><div className="font-bold">{set.appName}</div><div></div></header>
+                        {mob && <div className="md:hidden fixed inset-0 z-50 flex"><div className="w-64 bg-blue-900 text-white flex flex-col"><div className="p-4 text-right"><button onClick={()=>setMob(false)}><Icon name="times text-xl"/></button></div><Side/></div><div className="flex-1 bg-black/50" onClick={()=>setMob(false)}></div></div>}
+                        <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24">
+                            {tab==='dash'&&<Dash pel={dPel} tag={dTag} peng={dPng} kel={dKel} adm={isAdm} cUser={cU} set={set}/>}
+                            {tab==='pel'&&<PelMgr data={dPel} toast={showToast} adm={isAdm} cUser={cU}/>}
+                            {tab==='tag'&&<TagMgr pel={dPel} tag={dTag} set={set} toast={showToast} adm={isAdm} cUser={cU}/>}
+                            {tab==='kel'&&<KelMgr data={dKel} pel={dPel} toast={showToast} adm={isAdm} cUser={cU}/>}
+                            {tab==='peng'&&<PengMgr data={dPng} toast={showToast}/>}
+                            {tab==='lap'&&<LapMgr pel={dPel} tag={dTag} set={set}/>}
+                            {tab==='set'&&<PengMgr set={set} admU={dAdm} toast={showToast}/>}
                         </main>
                     </div>
                 </div>
