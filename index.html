@@ -526,12 +526,20 @@
             const summaryLunas = validTagihanForSummary.reduce((s, t) => s + getTerbayar(t), 0);
             const summaryBelum = validTagihanForSummary.reduce((s, t) => s + getSisa(t), 0);
 
+            // Perbaikan: Fungsi ini mengambil meter akhir dari tagihan TERAKHIR pelanggan tersebut
+            // Tidak harus berpatokan hanya pada satu bulan sebelumnya, 
+            // agar jika bulan lalu kosong, tetap mengambil data terakhir yang ada.
             const getMeterAwalPrev = (idPelanggan) => {
-                const [y, m] = periode.split('-'); let prevM = parseInt(m) - 1; let prevY = parseInt(y);
-                if(prevM === 0) { prevM = 12; prevY -= 1; }
-                const prevPeriode = `${prevY}-${prevM.toString().padStart(2, '0')}`;
-                const tLalu = tagihan.find(x => x.idPelanggan === idPelanggan && x.periode === prevPeriode);
-                return tLalu ? tLalu.meterAkhir : 0;
+                // Cari semua tagihan pelanggan ini yang periodenya SEBELUM periode yang dipilih
+                const tagihanLalu = tagihan
+                    .filter(x => x.idPelanggan === idPelanggan && x.periode < periode)
+                    .sort((a, b) => b.periode.localeCompare(a.periode)); // Urutkan menurun (terbaru di atas)
+                
+                // Jika ada tagihan sebelumnya, ambil meter akhirnya
+                if (tagihanLalu.length > 0) {
+                    return tagihanLalu[0].meterAkhir;
+                }
+                return 0; // Jika tidak ada riwayat sama sekali
             };
 
             const openTagihan = (p) => {
@@ -1219,24 +1227,26 @@ ${alignCenter('TERIMA KASIH')}
             };
 
             const [formSettings, setFormSettings] = useState(settings); 
-            const [usersList, setUsersList] = useState(adminUsers);
+            // Gunakan state lokal sebagai sumber kebenaran (source of truth) saat mengedit
+            const [localUsers, setLocalUsers] = useState(adminUsers);
             const [perms, setPerms] = useState(settings.rolePermissions || defaultPermissions);
-            const [isLoaded, setIsLoaded] = useState(false); // PENGUNCI KEAMANAN BARU
+            const [isSaving, setIsSaving] = useState(false);
 
-            // KUNCI SINKRONISASI CERDAS: Memastikan data server masuk dulu agar tidak tertimpa
-            useEffect(() => {
-                if (adminUsers && adminUsers.length > 0 && !isLoaded) {
-                    setUsersList(adminUsers);
-                    setIsLoaded(true);
-                }
-            }, [adminUsers, isLoaded]);
-
+            // Hanya perbarui formSettings dan perms jika settings prop berubah
             useEffect(() => {
                 if (settings) {
                     setFormSettings(settings);
                     setPerms(settings.rolePermissions || defaultPermissions);
                 }
             }, [settings]);
+
+            // Sinkronkan localUsers HANYA SAAT PERTAMA KALI atau JIKA BELUM ADA DATA LOKAL
+            // Ini mencegah perubahan dari server menimpa input user yang sedang diketik
+            useEffect(() => {
+                if (adminUsers && adminUsers.length > 0 && localUsers.length === 0) {
+                    setLocalUsers(adminUsers);
+                }
+            }, [adminUsers]);
 
             const menuList = [
                 { id: 'dashboard', label: 'Dashboard' }, { id: 'pelanggan', label: 'Pelanggan' },
@@ -1260,10 +1270,12 @@ ${alignCenter('TERIMA KASIH')}
             const simpanSemua = async (e) => { 
                 if(e) e.preventDefault(); 
                 
-                if(usersList.some(u => !u.username.trim() || !u.password.trim())) {
+                // Cek validasi username/password pada localUsers (bukan usersList yang lama)
+                if(localUsers.some(u => !u.username.trim() || !u.password.trim())) {
                     return alert("GAGAL MENYIMPAN: Username dan Password di tabel 'Akun Login' tidak boleh ada yang kosong!"); 
                 }
 
+                setIsSaving(true);
                 try { 
                     // 1. Simpan Pengaturan & Hak Akses
                     await DB_PUSAT.collection('pengaturan').doc('konfigurasi').set({ 
@@ -1277,16 +1289,20 @@ ${alignCenter('TERIMA KASIH')}
                         rolePermissions: perms 
                     }); 
 
-                    // 2. Simpan Daftar Akun Petugas
-                    await DB_PUSAT.collection('pengaturan').doc('users').set({ list: usersList }); 
+                    // 2. Simpan Daftar Akun Petugas menggunakan data dari localUsers
+                    await DB_PUSAT.collection('pengaturan').doc('users').set({ list: localUsers }); 
                     
                     showToast("SEMUA Data Pengaturan & Akun Berhasil Disimpan!"); 
-                } catch(err) { alert("Terjadi Kesalahan: " + err.message); } 
+                } catch(err) { 
+                    alert("Terjadi Kesalahan: " + err.message); 
+                } finally {
+                    setIsSaving(false);
+                }
             };
 
-            const tambahUser = () => setUsersList([...usersList, { id: Date.now().toString(), username: '', password: '', role: 'Petugas', wilayah: '' }]);
-            const updateUser = (id, field, value) => setUsersList(usersList.map(u => u.id === id ? { ...u, [field]: value } : u));
-            const hapusUser = (id) => { if(usersList.length <= 1) return alert("Minimal harus ada 1 akun Admin!"); setUsersList(usersList.filter(u => u.id !== id)); };
+            const tambahUser = () => setLocalUsers([...localUsers, { id: Date.now().toString(), username: '', password: '', role: 'Petugas', wilayah: '' }]);
+            const updateUser = (id, field, value) => setLocalUsers(localUsers.map(u => u.id === id ? { ...u, [field]: value } : u));
+            const hapusUser = (id) => { if(localUsers.length <= 1) return alert("Minimal harus ada 1 akun Admin!"); setLocalUsers(localUsers.filter(u => u.id !== id)); };
 
             return (
                 <div className="space-y-8 max-w-4xl">
@@ -1337,7 +1353,7 @@ ${alignCenter('TERIMA KASIH')}
                         <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-gray-700"><i className="fas fa-users-cog mr-2"></i> Akun Login (Hak Akses & Wilayah)</h3><button onClick={tambahUser} className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded border"><i className="fas fa-plus mr-1"></i> Tambah User</button></div>
                         <p className="text-xs text-gray-500 mb-4">Setiap akun bisa diatur <b>jabatannya</b>. Khusus <b>Petugas</b> bisa dikunci ke beberapa wilayah sekaligus dengan cara <b>memisahkan namanya dengan tanda koma</b>.</p>
                         <div className="space-y-3 mb-6">
-                            {usersList.map((u, i) => (
+                            {localUsers.map((u, i) => (
                                 <div key={u.id} className="flex flex-wrap md:flex-nowrap gap-2 items-center bg-gray-50 p-2 rounded">
                                     <span className="w-6 text-center text-sm font-bold text-gray-400">{i+1}.</span>
                                     <input type="text" placeholder="Username" value={u.username} onChange={e=>updateUser(u.id, 'username', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[100px]"/>
@@ -1350,15 +1366,16 @@ ${alignCenter('TERIMA KASIH')}
                                     {u.role === 'Petugas' && (
                                         <input type="text" placeholder="Wilayah (Pisah koma. Cth: RT 1, RT 2)" value={u.wilayah || ''} onChange={e=>updateUser(u.id, 'wilayah', e.target.value)} className="border p-2 flex-1 rounded outline-none text-sm min-w-[200px]"/>
                                     )}
-                                    <button onClick={()=>hapusUser(u.id)} className="text-red-500 hover:bg-red-100 p-2 rounded"><i className="fas fa-trash"></i></button>
+                                    <button type="button" onClick={()=>hapusUser(u.id)} className="text-red-500 hover:bg-red-100 p-2 rounded"><i className="fas fa-trash"></i></button>
                                 </div>
                             ))}
                         </div>
                         
                         {/* TOMBOL SIMPAN UNIVERSAL PADA BAGIAN BAWAH HALAMAN PENGATURAN */}
                         <div className="flex justify-end mt-8 border-t pt-6">
-                            <button onClick={simpanSemua} disabled={!isLoaded} className={`px-8 py-3 rounded-xl shadow-lg font-bold flex items-center transition-all ${isLoaded ? 'bg-blue-600 hover:bg-blue-700 text-white transform hover:scale-105' : 'bg-gray-400 text-gray-200 cursor-not-allowed'}`}>
-                                <i className="fas fa-save mr-2 text-xl"></i> {isLoaded ? 'Simpan Seluruh Pengaturan & Akun' : 'Memuat Data...'}
+                            <button onClick={simpanSemua} disabled={isSaving} className={`px-8 py-3 rounded-xl shadow-lg font-bold flex items-center transition-all ${!isSaving ? 'bg-blue-600 hover:bg-blue-700 text-white transform hover:scale-105' : 'bg-gray-400 text-gray-200 cursor-not-allowed'}`}>
+                                {isSaving ? <i className="fas fa-spinner fa-spin mr-2 text-xl"></i> : <i className="fas fa-save mr-2 text-xl"></i>} 
+                                {isSaving ? 'Menyimpan...' : 'Simpan Seluruh Pengaturan & Akun'}
                             </button>
                         </div>
                     </div>
